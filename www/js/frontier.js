@@ -957,3 +957,13 @@ U.frameX = function (act, A) {
   const now = Date.now();
   document.querySelectorAll('.rqt').forEach((e) => { e.textContent = `⏳ ${mmss(Math.max(0, RQ_LIFE - (now - +e.dataset.at)) / 1000)}`; });
 };
+
+// 의뢰가 걸린 몬스터 · 행동 · 지역에 📜 표시
+U.qMark = function (ids, small = false) {
+  const L = this.g.s.rq?.list;
+  if (!L) return '';
+  const key = L.map((q) => q.id).join(',');
+  if (this._qmKey !== key) { this._qmKey = key; this._qm = {}; for (const q of L) this._qm[q.target] = (this._qm[q.target] || 0) + 1; }
+  const n = ids.reduce((a, id) => a + (this._qm[id] || 0), 0);
+  return n ? `<span class="qm" title="의뢰 ${n}개">${small ? '📜' : `📜${n > 1 ? n : ''}`}</span>` : '';
+};

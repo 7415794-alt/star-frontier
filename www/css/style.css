@@ -127,3 +127,4 @@ body { word-break: keep-all; overflow-wrap: anywhere; }
 @media (max-width: 400px) { .top { padding: 8px; font-size: 13px; } .top .res { gap: 6px; } }
 .lsr { max-height: 40vh; overflow: auto; margin-top: 4px; }
 .ls { cursor: pointer; }
+.qm { margin-left: 4px; font-size: 12px; color: var(--gold); font-weight: 700; }

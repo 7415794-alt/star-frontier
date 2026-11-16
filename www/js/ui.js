@@ -216,11 +216,11 @@ export class UI {
     const curT = ZONES[this.zone].t, cl = g.combatLevel();
     const zs = h('div', 'card zpick', `<div class="tstrip">${TIERS.map((T, t) => {
       const far = T.lvl > cl + 25;
-      return `<button class="tc${t === curT ? ' on' : ''}${far ? ' far' : ''}" data-t="${t}" style="--tc:${T.c}"><b>${T.n}</b><small>Lv ${T.lvl}+</small></button>`;
+      return `<button class="tc${t === curT ? ' on' : ''}${far ? ' far' : ''}" data-t="${t}" style="--tc:${T.c}"><b>${T.n}${this.qMark?.(ZONES.filter((z) => z.t === t).flatMap((z) => z.mons.map((m) => m.id)), true) || ''}</b><small>Lv ${T.lvl}+</small></button>`;
     }).join('')}</div>
       <div class="zbtns">${ZONES.map((z, i) => [z, i]).filter(([z]) => z.t === curT).map(([z, i]) => {
       const hn = z.mons.reduce((a, m) => a + huntTier(s.kills?.[m.id]), 0);
-      return `<button class="zb${i === this.zone ? ' on' : ''}" data-i="${i}"><b>${z.n}</b><small>Lv ${z.mons[0].lvl}~${z.mons[3].lvl}${hn ? ` · 🏹${hn}/${z.mons.length * HUNT_TIERS.length}` : ''}</small></button>`;
+      return `<button class="zb${i === this.zone ? ' on' : ''}" data-i="${i}"><b>${z.n}${this.qMark?.(z.mons.map((m) => m.id)) || ''}</b><small>Lv ${z.mons[0].lvl}~${z.mons[3].lvl}${hn ? ` · 🏹${hn}/${z.mons.length * HUNT_TIERS.length}` : ''}</small></button>`;
     }).join('')}</div>`);
     zs.querySelectorAll('.tc').forEach((b) => b.addEventListener('click', () => { this.zone = ZONES.findIndex((z) => z.t === +b.dataset.t); }));
     zs.querySelectorAll('.zb').forEach((b) => b.addEventListener('click', () => { this.zone = +b.dataset.i; }));
@@ -235,7 +235,7 @@ export class UI {
       const danger = v.killsPerLife < 3;
       const r = h('div', 'row' + (on ? ' on' : ''), `
         <div class="ic">${m.icon}</div>
-        <div class="info"><div class="nm">${m.boss ? '👑 ' : ''}${m.name} <span class="mut">Lv ${m.lvl} · 체력 ${fmt(m.hp)} · 🔍 전리품${huntTier(s.kills?.[m.id]) ? ` · 🏹${huntTier(s.kills?.[m.id])}` : ''}</span></div>
+        <div class="info"><div class="nm">${m.boss ? '👑 ' : ''}${m.name}${this.qMark?.([m.id]) || ''} <span class="mut">Lv ${m.lvl} · 체력 ${fmt(m.hp)} · 🔍 전리품${huntTier(s.kills?.[m.id]) ? ` · 🏹${huntTier(s.kills?.[m.id])}` : ''}</span></div>
         <div class="mut">${STYLES[m.style].icon}${STYLES[m.style].name} · 공격 ${m.atk} · 힘 ${m.str} · 방어 ${v.mdef} · ${m.interval}초 · 약점 ${STYLES[m.weak].icon}</div>
         <div class="mut sp">${this.huntLine(m)}</div>
         <div class="mut">내 피해 ${v.min}~${v.mh} · 처치 약 ${time(v.ttk)} · 적 명중 ${pct(v.mHit)} · 최대 ${v.mMax}${danger ? ' <span style="color:#f87171">⚠ 위험</span>' : ''} · 처치 ${fmt(s.kills?.[m.id] || 0)}</div></div>
@@ -338,7 +338,7 @@ export class UI {
       const it = ITEMS[Object.keys(a.out)[0]] || {};
       const gearInfo = it.kind === 'gear' ? `<div class="mut">${this.gearLine(it)} · 등급 무작위</div>` : itemInfo(it) ? `<div class="mut sp">${itemInfo(it)}</div>` : '';
       const r = h('div', 'row' + (lock ? ' lock' : '') + (on ? ' on' : ''), `<div class="ic">${a.icon}</div>
-        <div class="info"><div class="nm">${a.name} <span class="mut">Lv ${a.lvl}</span></div><div class="mut">${io}</div>${gearInfo}
+        <div class="info"><div class="nm">${a.name}${this.qMark?.(Object.keys(a.out || {})) || ''} <span class="mut">Lv ${a.lvl}</span></div><div class="mut">${io}</div>${gearInfo}
         <div class="mut">XP ${g.actionXp(k.id, a).toFixed(0)} · ${g.actionTime(k.id, a).toFixed(1)}초${burn ? ` · 태울 확률 ${pct(burn)}` : ''}</div></div>
         <button class="btn ${on ? '' : 'pri'}"${lock ? ' disabled' : ''}>${lock ? '🔒' : on ? '■' : '▶'}</button>`);
       $('button', r).addEventListener('click', () => { if (on) g.stop(); else g.startSkill(k.id, a.id); });
