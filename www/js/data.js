@@ -184,11 +184,23 @@ TIERS.forEach((T, t) => {
 // ---------- 채집 도구 (채집 속도) ----------
 export const TOOL_SPEED = [0.05, 0.1, 0.16, 0.23, 0.31, 0.4, 0.5, 0.62, 0.75];
 for (let t = TOOL_SPEED.length; t < TIERS.length; t++) TOOL_SPEED.push(Math.round((0.75 + 0.1 * (t - 8)) * 100) / 100);
-export const TOOLS = { wood: { n: '벌목 도끼', icon: '🪓' }, mine: { n: '곡괭이', icon: '⛏️' }, fish: { n: '낚싯대', icon: '🎣' } };
+export const TOOLS = {
+  wood: { n: '벌목 도끼', icon: '🪓', mat: ['bar', 'log'], fx: '채집 속도' },
+  mine: { n: '곡괭이', icon: '⛏️', mat: ['bar', 'log'], fx: '채집 속도' },
+  fish: { n: '낚싯대', icon: '🎣', mat: ['log', 'hide'], fx: '채집 속도' },
+  smith: { n: '대장 망치', icon: '🔨', mat: ['bar', 'log'], fx: '제작 속도' },
+  craft: { n: '공예 칼', icon: '🔪', mat: ['hide', 'log'], fx: '제작 속도' },
+  cook: { n: '요리 냄비', icon: '🍲', mat: ['bar', 'log'], fx: '요리 속도' },
+  alch: { n: '연금 플라스크', icon: '🧫', mat: ['gem', 'herb'], fx: '연금 속도' },
+  ench: { n: '룬 조각칼', icon: '🪄', mat: ['cloth', 'gem'], fx: '마법 공예 속도' },
+  div: { n: '성스러운 향로', icon: '🕯️', mat: ['bone', 'gem'], fx: '뼈 묻기 속도' },
+  steal: { n: '도둑 장갑', icon: '🧤', mat: ['hide', 'cloth'], fx: '도둑질 속도' },
+};
 // 도구 업그레이드: t단계로 올리는 재료 · 골드 (도구는 종류마다 1개, 1~21단계)
 export const toolCost = (sk, t) => {
   const n = 3 + 2 * t;
-  const mat = sk === 'fish' ? { ['log' + t]: n, ['hide' + t]: Math.ceil(n / 2) } : { ['bar' + t]: n, ['log' + t]: Math.ceil(n / 2) };
+  const [a, b] = TOOLS[sk].mat;
+  const mat = { [a + t]: n, [b + t]: Math.ceil(n / 2) };
   return { mat, coins: 150 * (t + 1) ** 2 };
 };
 TIERS.forEach((T, t) => {

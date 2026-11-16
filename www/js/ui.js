@@ -310,7 +310,7 @@ export class UI {
       p.appendChild(list);
     }
     if (this.toolShop) {
-      const tc = h('div', 'slot', `<div class="n">🛠️ 도구 제작 <span class="mut">${Object.keys(TOOLS).map((sk) => `${TOOLS[sk].icon}${g.toolTier(sk) + 1}`).join(' ')}</span></div><div class="t">도구는 종류마다 1개 · 재료와 골드로 21단계까지 업그레이드</div>`);
+      const tc = h('div', 'slot', `<div class="n">🛠️ 도구 제작 <span class="mut">${Object.keys(TOOLS).map((sk) => `${TOOLS[sk].icon}${g.toolTier(sk) + 1}`).join(' ')}</span></div><div class="t">스킬마다 도구 1개 · 재료와 골드로 21단계까지 업그레이드</div>`);
       tc.style.cursor = 'pointer';
       if (this.skillSel === 'tools') tc.style.borderColor = 'var(--acc)';
       tc.addEventListener('click', () => { this.skillSel = 'tools'; });
@@ -327,7 +327,7 @@ export class UI {
     if (k.id === 'div') { this.tabDiv(p); return; }
     if (TOOLS[k.id]) {
       const cur = ITEMS[s.tools?.[k.id]];
-      const tc = h('div', 'card', `${TOOLS[k.id].icon} 도구: <b>${cur ? `${cur.name} (${cur.t + 1}단계 · 채집 속도 +${pct(cur.gspd)})` : '없음'}</b> <button class="btn sm tb">🛠️ 도구 제작</button>`);
+      const tc = h('div', 'card', `${TOOLS[k.id].icon} 도구: <b>${cur ? `${cur.name} (${cur.t + 1}단계 · ${TOOLS[k.id].fx} +${pct(cur.gspd)})` : '없음'}</b> <button class="btn sm tb">🛠️ 도구 제작</button>`);
       $('.tb', tc).addEventListener('click', () => { this.skillSel = 'tools'; });
       p.appendChild(tc);
     }
@@ -509,9 +509,13 @@ export class UI {
     this.popCard?.(p);
     const c = h('div', 'card', `<b>설정</b>
       <label class="tg"><input type="checkbox" id="optNums"${s.showNums ? ' checked' : ''}> 피해 숫자 표시</label>
+      <label class="tg"><input type="checkbox" id="optDeal"${s.numDeal !== false ? ' checked' : ''}> 💥 주는 피해 표시</label>
+      <label class="tg"><input type="checkbox" id="optTake"${s.numTake !== false ? ' checked' : ''}> 🩸 받는 피해 표시</label>
       <label class="tg">자동 섭취: 체력 <select id="optEat">${[0, 0.3, 0.4, 0.5, 0.6, 0.7].map((v) => `<option value="${v}"${s.autoEat === v ? ' selected' : ''}>${v ? pct(v) + ' 이하' : '끄기'}</option>`).join('')}</select></label>`);
     p.appendChild(c);
     $('#optNums', c).addEventListener('change', (e) => { s.showNums = e.target.checked; });
+    $('#optDeal', c).addEventListener('change', (e) => { s.numDeal = e.target.checked; });
+    $('#optTake', c).addEventListener('change', (e) => { s.numTake = e.target.checked; });
     const ex = h('div', 'card', `<b>화면 · 소리</b>
       <label class="tg"><input type="checkbox" data-k="sfx"${s.sfx ? ' checked' : ''}> 🔊 효과음 (레벨 업 · 희귀 획득)</label>
       <label class="tg"><input type="checkbox" data-k="cb"${s.cb ? ' checked' : ''}> 🎨 색약 모드 (체력 바 파랑 · 주황)</label>

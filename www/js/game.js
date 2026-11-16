@@ -1,7 +1,7 @@
 // 별무리 개척기 — 게임 로직
 import {
   SKILLS, SKILL, ITEMS, SLOT_IDS, STAT_IDS, CAPS, MONSTER, ACTIONS, PRAYERS, PETS, PET, SPELLS, SPEEDS,
-  levelOf, XP_TABLE, TIERS, RARITY, baseHp, COMBAT_TICK, HUNT_PER, huntTier, rollRarity, gearId, penChance, defEff, defEffStd, MON_ROLL, monFloor, monDef, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
+  levelOf, XP_TABLE, TIERS, RARITY, baseHp, COMBAT_TICK, HUNT_PER, huntTier, rollRarity, gearId, penChance, defEff, defEffStd, monAtkStr, MON_ROLL, monFloor, monDef, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
 } from './data.js';
 
 export const SAVE_KEY = 'star-frontier-save-v1';
@@ -114,8 +114,11 @@ export const C = {
   power: (p) => {
     const off = C.avgHit(p, 0) / C.interval(p);
     const d = C.eff(p, 'def');
-    const taken = penChance(STD_ATK, d) * (1 - defEffStd(d, STD_ATK)) * (1 - C.dr(p));
-    const ehp = (C.maxHp(p) / Math.max(0.02, taken)) * (1 + C.ls(p) * 3);
+    const st = [(p.lv.atk + p.lv.str) / 2, p.lv.rng, p.lv.mag].sort((a, b) => b - a);
+    const L = Math.max(1, Math.floor(p.lv.def * 0.25 + st[0] * 0.75 + st[1] * 0.3 + st[2] * 0.15));
+    const ref = monAtkStr(L);
+    const taken = penChance(ref.atk, d) * (1 - defEff(d, ref.atk)) * (1 - C.dr(p));
+    const ehp = (C.maxHp(p) / Math.max(0.001, taken)) * (1 + C.ls(p) * 3);
     return Math.sqrt(Math.max(0, off) * ehp);
   },
 };
@@ -316,6 +319,7 @@ export class Game {
     if (ty === 'gather') sp *= 1 + this.sp('gspd') + this.toolSpeed(skill);
     // 장비 제작은 제작 속도, 요리 · 제련 · 연금 같은 가공은 생산 속도
     if (ty === 'make') sp *= 1 + (a.craft ? this.sp('cspd') : this.sp('pspd'));
+    if (ty !== 'gather') sp *= 1 + this.toolSpeed(skill);
     return a.time / sp;
   }
   // 도둑질 성공률: 레벨 차이로 최대 90% + 도둑질 성공률 보너스 (최대 99%)
@@ -454,7 +458,6 @@ export class Game {
       const pet = PETS.find((x) => x.src === 'boss:' + m.z);
       if (pet) this.tryPet(pet, mul);
     }
-    this.fx('mon', got.slice(0, 5).join(''), 'loot');
     this.rt.mon = null;
     this.rt.respawn = RESPAWN;
   }
@@ -600,7 +603,7 @@ export class Game {
   buryTick(dt) {
     const id = this.s.activity.bone;
     if (this.have(id) < 1) { this.toast('묻을 뼈가 없습니다', 'bad'); this.stop(); return; }
-    this.rt.prog += dt / 1.2;
+    this.rt.prog += (dt * (1 + this.toolSpeed('div'))) / 1.2;
     while (this.rt.prog >= 1) {
       this.rt.prog -= 1;
       if (this.have(id) < 1) { this.stop(); return; }
@@ -642,6 +645,8 @@ export class Game {
   fx(at, text, kind) {
     if (this.quiet) return;
     if (!this.s.showNums && kind !== 'loot') return;
+    if (kind === 'hit' && this.s.numDeal === false) return;
+    if (at === 'hero' && (kind === 'hurt' || kind === 'miss') && this.s.numTake === false) return;
     this.rt.fx.push({ at, text, kind, t: 0, x: Math.random() * 40 - 20 });
     if (this.rt.fx.length > 30) this.rt.fx.shift();
   }

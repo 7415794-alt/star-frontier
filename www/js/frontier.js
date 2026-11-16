@@ -1012,19 +1012,20 @@ P.bestTool = function () { return null; };
 U.toolShop = function (p) {
   const g = this.g, s = g.s;
   p.appendChild(h('div', 'h', '🛠️ 도구 제작'));
-  p.appendChild(h('div', 'card mut', `도구는 종류마다 1개만 가지고, 재료와 골드로 한 단계씩 올립니다 (1~${TIERS.length}단계). 단계가 오를수록 채집 속도가 빨라집니다. 해당 스킬 레벨이 단계 레벨 이상이어야 합니다.`));
+  p.appendChild(h('div', 'card mut', `도구는 종류마다 1개만 가지고, 재료와 골드로 한 단계씩 올립니다 (1~${TIERS.length}단계). 단계가 오를수록 그 스킬의 속도(채집 · 제작 · 요리 · 연금 · 뼈 묻기 · 도둑질)가 빨라집니다. 해당 스킬 레벨이 단계 레벨 이상이어야 합니다.`));
   for (const [sk, T0] of Object.entries(TOOLS)) {
     const cur = ITEMS[s.tools?.[sk]], t = g.toolTier(sk), nx = g.toolNext(sk);
+    const FX = T0.fx;
     const dots = TIERS.map((T, i) => `<i style="background:${i <= t ? T.c : 'var(--line)'}"></i>`).join('');
     let body;
     if (!nx) body = '<div class="mut">최고 단계에 도달했습니다 ✨</div>';
     else {
       const need = Object.entries(nx.mat).map(([id, n]) => `<span style="color:${g.have(id) >= n ? 'var(--good)' : '#f87171'}">${ITEMS[id].icon}${ITEMS[id].name} ${fmt(g.have(id))}/${fmt(n)}</span>`).join(' · ');
-      body = `<div>다음: <b style="color:${TIERS[nx.t].c}">${TIERS[nx.t].n} ${T0.n}</b> <span class="mut">(${nx.t + 1}단계 · 채집 속도 +${pct(ITEMS[`tool_${sk}${nx.t}`].gspd)})</span></div>
+      body = `<div>다음: <b style="color:${TIERS[nx.t].c}">${TIERS[nx.t].n} ${T0.n}</b> <span class="mut">(${nx.t + 1}단계 · ${FX} +${pct(ITEMS[`tool_${sk}${nx.t}`].gspd)})</span></div>
         <div class="mut">필요: <span style="color:${nx.lvOk ? 'var(--good)' : '#f87171'}">${SKILL[sk].icon}${SKILL[sk].name} Lv ${TIERS[nx.t].lvl}</span> · ${need} · <span style="color:${nx.coinOk ? 'var(--good)' : '#f87171'}">🪙 ${fmt(nx.coins)}</span></div>
         <button class="btn sm ${nx.ok ? 'pri' : ''} tup"${nx.ok ? '' : ' disabled'}>⬆️ 업그레이드</button>`;
     }
-    const c = h('div', 'card tshop', `<b>${T0.icon} ${cur ? cur.name : T0.n + ' (없음)'}</b> <span class="mut">${t + 1} / ${TIERS.length}단계${cur ? ` · 채집 속도 +${pct(cur.gspd)}` : ''}</span>
+    const c = h('div', 'card tshop', `<b>${T0.icon} ${cur ? cur.name : T0.n + ' (없음)'}</b> <span class="mut">${t + 1} / ${TIERS.length}단계${cur ? ` · ${FX} +${pct(cur.gspd)}` : ''}</span>
       <div class="tdots">${dots}</div>${body}`);
     c.querySelector('.tup')?.addEventListener('click', () => g.upgradeTool(sk));
     p.appendChild(c);
@@ -1032,3 +1033,37 @@ U.toolShop = function (p) {
 };
 const _sigT = U.sigX;
 U.sigX = function () { return [..._sigT.call(this), this.g.s.tools, this.skillSel === 'tools' ? this.g.s.coins : 0]; };
+
+// ====================== 자동 장착: 가방 전체에서 더 강한 조합을 주기적으로 찾아 장착 ======================
+// (드롭 때만 비교하던 방식은 조합 · 의뢰 · 레벨업으로 생긴 더 좋은 장비를 놓쳤음)
+P.autoBest = function () {
+  const s = this.s;
+  if (!s.autoEquip || s.fight) return;
+  const st = this.style();
+  const L = this.loadoutPowers()[st];
+  if (!L) return;
+  const now = this.powerRaw();
+  if (L.power <= now * 1.001) return;
+  const changed = [];
+  if (L.eq.weapon !== s.equip.weapon) { this.equip(L.eq.weapon); changed.push(ITEMS[L.eq.weapon].name); }
+  for (const sl of SLOT_IDS) if (sl !== 'weapon' && L.eq[sl] && L.eq[sl] !== s.equip[sl]) { this.equip(L.eq[sl]); changed.push(ITEMS[L.eq[sl]].name); }
+  if (changed.length) this.toast(`🔄 더 강한 장비로 자동 교체 (${changed.length}개) · 전투력 ${fmt(this.power())}`, 'info');
+};
+const _updAB = P.update;
+P.update = function (dt) {
+  _updAB.call(this, dt);
+  this._abT = (this._abT || 0) + dt;
+  if (this._abT >= 5) { this._abT = 0; this.autoBest(); }
+};
+// 전투 탭: 피해 숫자 빠른 끄기 버튼
+const _styleCardN = U.styleCard;
+U.styleCard = function (p) {
+  _styleCardN?.call(this, p);
+  const s = this.g.s;
+  const c = h('div', 'card', `<button class="btn sm nd">💥 주는 피해 ${s.numDeal !== false ? '켜짐' : '꺼짐'}</button> <button class="btn sm nt">🩸 받는 피해 ${s.numTake !== false ? '켜짐' : '꺼짐'}</button>`);
+  c.querySelector('.nd').addEventListener('click', () => { s.numDeal = s.numDeal === false; });
+  c.querySelector('.nt').addEventListener('click', () => { s.numTake = s.numTake === false; });
+  p.appendChild(c);
+};
+const _sigN = U.sigX;
+U.sigX = function () { return [..._sigN.call(this), this.g.s.numDeal, this.g.s.numTake]; };
