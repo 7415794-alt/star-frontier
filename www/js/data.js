@@ -1,5 +1,5 @@
 // 별무리 개척기 — 게임 데이터 (수치는 모두 이 게임용으로 설계)
-export const VERSION = '0.2.0';
+export const VERSION = '0.2.1';
 export const MAX_LVL = 100;
 export const SPEEDS = [1, 2, 4, 8, 16, 32];
 

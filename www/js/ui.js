@@ -364,7 +364,7 @@ export class UI {
     $('#bReset', sv).addEventListener('click', () => this.modal('🗑️ 초기화', '모든 진행 상황을 지우고 처음부터 시작합니다. 되돌릴 수 없습니다.', [
       { label: '취소' }, { label: '초기화', pri: true, fn: () => this.hooks.restart(null) },
     ]));
-    p.appendChild(h('div', 'card mut', `별무리 개척기 v${VERSION} · 처치 ${fmt(s.stats.kills)} · 사망 ${fmt(s.stats.deaths)} · 행동 ${fmt(s.stats.actions)}`));
+    p.appendChild(h('div', 'card mut', `별무리 개척기 v${VERSION} · 코드: ${window.BOOT?.src || '웹'}${window.BOOT?.ref ? ' ' + window.BOOT.ref : ''} · 처치 ${fmt(s.stats.kills)} · 사망 ${fmt(s.stats.deaths)} · 행동 ${fmt(s.stats.actions)}`));
   }
 
   modal(title, body, btns) {
