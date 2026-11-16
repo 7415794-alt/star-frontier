@@ -1,4 +1,4 @@
-// 별무리 개척기 — 🏰 마을: 의뢰(퀘스트) · 재능 · 박물관 · 떠돌이 상인(한정 재고) · 별빛 축제(주말 이벤트)
+// 별무리 개척기 — 🏰 마을: 의뢰(퀘스트) · 재능 · 박물관 · 떠돌이 상인(한정 재고) · 별빛 축제(매일)
 import { ZONES, ITEMS, TIERS, SKILLS, SKILL, GEAR, RARITY, PETS, PET, STYLES, gearId, rollRarity, SPECIAL_NAMES, FLAT_SP } from './data.js';
 import { Game } from './game.js';
 
@@ -8,10 +8,13 @@ const pct = (v, d = 1) => `${(v * 100).toFixed(d)}%`;
 const spText = (sp) => Object.entries(sp || {}).filter(([k]) => SPECIAL_NAMES[k] && sp[k]).map(([k, v]) => `${SPECIAL_NAMES[k]} +${FLAT_SP.has(k) ? fmt(v) : pct(v)}`).join(', ');
 
 // ---------- 의뢰 ----------
-const RANKS = ['E', 'D', 'C', 'B', 'A', 'S', 'S', 'SS', 'SS'];
-const RANK_CP = { E: 1, D: 1, C: 2, B: 2, A: 3, S: 4, SS: 6 };
+const RANKS = TIERS.map((T, t) => ['E', 'D', 'C', 'B', 'A', 'S', 'S', 'SS', 'SS'][t] || (t < 15 ? 'SS' : 'SSS'));
+const RANK_CP = { E: 1, D: 1, C: 2, B: 2, A: 3, S: 4, SS: 6, SSS: 8 };
+const MAX_Q = 199;
+const BASE_ZONE = Object.fromEntries(ZONES.filter((z) => z.base).map((z) => [z.t, z]));
 export const QUESTS = [];
-ZONES.forEach((z, t) => {
+Object.values(BASE_ZONE).forEach((z) => {
+  const t = z.t;
   const rank = RANKS[t];
   const coin = (k) => Math.round(k * (t + 1) ** 2 * 400);
   const reward = (k, gear) => ({ coins: coin(k), gear, cp: RANK_CP[rank] });
@@ -20,7 +23,7 @@ ZONES.forEach((z, t) => {
   QUESTS.push({ id: `q${t}_wood`, z: t, rank, name: '목재 납품', desc: `${ITEMS['log' + t].icon} ${ITEMS['log' + t].name} ${80 + t * 20}개 모으기`, type: 'got', target: 'log' + t, qty: 80 + t * 20, reward: reward(1.5, null) });
   QUESTS.push({ id: `q${t}_ore`, z: t, rank, name: '광석 납품', desc: `${ITEMS['ore' + t].icon} ${ITEMS['ore' + t].name} ${80 + t * 20}개 모으기`, type: 'got', target: 'ore' + t, qty: 80 + t * 20, reward: reward(1.5, 'helm' + t) });
   QUESTS.push({ id: `q${t}_cook`, z: t, rank, name: '보급 식량', desc: `${ITEMS['food' + t].icon} ${ITEMS['food' + t].name} ${60 + t * 15}개 모으기`, type: 'got', target: 'food' + t, qty: 60 + t * 15, reward: reward(1.5, null) });
-  QUESTS.push({ id: `q${t}_lvl`, z: t, rank, name: '실력 증명', desc: `전투 레벨 ${Math.min(99, z.lvl + 10)} 달성`, type: 'clvl', qty: Math.min(99, z.lvl + 10), reward: reward(2, 'plate' + t) });
+  QUESTS.push({ id: `q${t}_lvl`, z: t, rank, name: '실력 증명', desc: `전투 레벨 ${Math.min(MAX_Q, z.lvl + 10)} 달성`, type: 'clvl', qty: Math.min(MAX_Q, z.lvl + 10), reward: reward(2, 'plate' + t) });
 });
 const QUEST = Object.fromEntries(QUESTS.map((q) => [q.id, q]));
 const MAX_ACTIVE = 3;
@@ -44,6 +47,7 @@ const talentCost = (L) => 1 + Math.floor(L / 5);
 
 // ---------- 박물관 ----------
 const MUSEUM_TIER = [1, 2, 3, 4.5, 6, 8, 10.5, 13, 16];
+for (let t = MUSEUM_TIER.length; t < TIERS.length; t++) MUSEUM_TIER.push(Math.round(16 * 1.2 ** (t - 8) * 10) / 10);
 const MUSEUM_BASE = {
   melee: { atkPct: 0.0011, strPct: 0.0011, defPct: 0.0013, dr: 0.0006 },
   ranged: { rngPct: 0.0023, defPct: 0.0008, ls: 0.0001 },
@@ -65,13 +69,20 @@ function families(type) {
 // ---------- 떠돌이 상인 (1시간마다 재고 교체) ----------
 const SHOP_PERIOD = 3600 * 1000;
 
-// ---------- 별빛 축제 (토 · 일요일) ----------
-export const isFestival = () => [0, 6].includes(new Date().getDay());
-const FEST_SHOP = [
-  { id: 'pet:cat', price: 300, n: '🐈 축제 고양이 (펫)' },
-  ...TIERS.map((T, t) => ({ id: `pot_luck${t}`, price: 6 + t * 4 })),
-  ...TIERS.map((T, t) => ({ id: `gembag${t}`, price: 10 + t * 6 })),
-];
+// ---------- 별빛 축제 (매일) ----------
+export const isFestival = () => true;
+// 상점: 축제 펫 전부 + 내 단계(전투 레벨로 갈 수 있는 가장 높은 단계) 물건
+const POTS = ['atk', 'str', 'def', 'rng', 'mag', 'regen', 'boss', 'luck', 'gather', 'prod', 'craft', 'thief'];
+function festShop(t) {
+  return [
+    ...PETS.filter((x) => x.src === 'event').map((x) => ({ pet: x.id, price: x.price, g: '🐾 축제 펫' })),
+    ...POTS.map((k) => ({ id: `pot_${k}${t}`, n: 3, price: 4 + t * 2, g: '🧪 물약 (3개 묶음)' })),
+    { id: 'nest' + t, n: 2, price: 8 + t * 3, g: '🎁 상자 · 재료' }, { id: 'gembag' + t, n: 2, price: 8 + t * 3, g: '🎁 상자 · 재료' }, { id: 'chest' + t, n: 2, price: 8 + t * 3, g: '🎁 상자 · 재료' },
+    { id: 'herb' + t, n: 10, price: 3 + t, g: '🎁 상자 · 재료' }, { id: 'gem' + t, n: 1, price: 10 + t * 3, g: '🎁 상자 · 재료' }, { id: 'food' + t, n: 20, price: 4 + t, g: '🎁 상자 · 재료' },
+    { id: 'sstone' + t, n: 1, price: 15 + t * 4, g: '🎁 상자 · 재료' }, { id: 'arrow' + t, n: 100, price: 5 + t, g: '🎁 상자 · 재료' }, { id: 'rune' + t, n: 100, price: 5 + t, g: '🎁 상자 · 재료' },
+    { id: 'whistle', n: 1, price: 150, g: '✨ 특별' }, { id: 'tome_bless', n: 1, price: 3000, g: '✨ 특별' }, { id: 'tome_undying', n: 1, price: 4500, g: '✨ 특별' }, { id: 'tome_heaven', n: 1, price: 6000, g: '✨ 특별' },
+  ];
+}
 
 // ---------- 게임에 기능 붙이기 ----------
 const P = Game.prototype;
@@ -151,7 +162,7 @@ P.questProgress = function (q, base) {
   if (q.type === 'clvl') return this.combatLevel();
   return 0;
 };
-P.questOpen = function (q) { return this.combatLevel() + 5 >= ZONES[q.z].lvl || q.z === 0; };
+P.questOpen = function (q) { return this.combatLevel() + 5 >= BASE_ZONE[q.z].lvl || q.z === 0; };
 P.acceptQuest = function (id) {
   const q = QUEST[id], A = this.s.quests.active;
   if (!q || A[id] != null || this.s.quests.done.includes(id) || Object.keys(A).length >= MAX_ACTIVE || !this.questOpen(q)) return false;
@@ -177,7 +188,7 @@ P.traderStock = function () {
   const tr = this.s.trader, now = Date.now();
   const slot = Math.floor(now / SHOP_PERIOD);
   if (tr.at === slot && tr.items.length) return tr;
-  const maxT = Math.max(0, ZONES.filter((z) => this.combatLevel() + 5 >= z.lvl).length - 1);
+  const maxT = Math.max(0, ...ZONES.filter((z) => this.combatLevel() + 5 >= z.lvl).map((z) => z.t));
   const pick = (a) => a[Math.floor(Math.random() * a.length)];
   const items = [];
   for (let i = 0; i < 6; i++) {
@@ -209,10 +220,12 @@ P.kill = function (m) {
   _kill.call(this, m);
   if (isFestival() && Math.random() < 0.2 * (1 + this.sp('drop'))) { this.s.candy = (this.s.candy || 0) + (m.boss ? 5 : 1); }
 };
+P.festTier = function () { return Math.max(0, ...ZONES.filter((z) => this.combatLevel() + 5 >= z.lvl).map((z) => z.t)); };
 P.festBuy = function (x) {
   if ((this.s.candy || 0) < x.price) return false;
-  if (x.id === 'pet:cat') { if (this.s.pets.includes('cat')) return false; this.s.pets.push('cat'); this.dirty(); this.toast('🐾 펫 획득! 🐈 축제 고양이', 'pet'); }
-  else this.give(x.id, 1);
+  if (x.pet) { const pt = PET[x.pet]; if (!pt || this.s.pets.includes(pt.id)) return false; this.s.pets.push(pt.id); if (!this.s.pet) this.s.pet = pt.id; this.dirty(); this.toast(`🐾 펫 획득! ${pt.icon} ${pt.name}`, 'pet'); }
+  else if (ITEMS[x.id]) this.give(x.id, x.n || 1);
+  else return false;
   this.s.candy -= x.price;
   return true;
 };
@@ -234,6 +247,7 @@ export function tabTown(ui, p) {
 
 function townQuest(ui, p, g, s) {
   const A = s.quests.active;
+  ui.autoQuestCard?.(p);
   p.appendChild(h('div', 'card mut', `동시에 ${MAX_ACTIVE}개까지 받을 수 있습니다 · 완료하면 💰 · 공훈 점수(재능) · 장비(희귀 이상) · 완료 ${s.quests.done.length} / ${QUESTS.length}`));
   p.appendChild(h('div', 'h', '진행 중'));
   if (!Object.keys(A).length) p.appendChild(h('div', 'mut', '받은 의뢰가 없습니다'));
@@ -251,7 +265,7 @@ function townQuest(ui, p, g, s) {
   const list = QUESTS.filter((q) => A[q.id] == null && !s.quests.done.includes(q.id) && g.questOpen(q));
   for (const q of list.slice(0, 15)) {
     const rw = `💰${fmt(q.reward.coins)} · 공훈 +${q.reward.cp}${q.reward.gear ? ` · ${ITEMS[q.reward.gear].name} (희귀 이상)` : ''}`;
-    const r = h('div', 'row', `<div class="ic">📋</div><div class="info"><div class="nm">[${q.rank}] ${q.name} <span class="mut">${ZONES[q.z].n}</span></div><div class="mut">${q.desc}</div><div class="mut sp">${rw}</div></div><button class="btn sm pri"${Object.keys(A).length >= MAX_ACTIVE ? ' disabled' : ''}>받기</button>`);
+    const r = h('div', 'row', `<div class="ic">📋</div><div class="info"><div class="nm">[${q.rank}] ${q.name} <span class="mut">${BASE_ZONE[q.z].n}</span></div><div class="mut">${q.desc}</div><div class="mut sp">${rw}</div></div><button class="btn sm pri"${Object.keys(A).length >= MAX_ACTIVE ? ' disabled' : ''}>받기</button>`);
     r.querySelector('button').addEventListener('click', () => g.acceptQuest(q.id));
     p.appendChild(r);
   }
@@ -276,6 +290,7 @@ function townTalent(ui, p, g, s) {
 }
 
 function townMuseum(ui, p, g, s) {
+  ui.autoDonateCard?.(p);
   const st = g.style();
   const b = g.museumBonus(st);
   p.appendChild(h('div', 'card', `<b>🏛️ 박물관</b> <span class="mut">기증한 장비 ${Object.keys(s.museum).length}종</span>
@@ -312,13 +327,17 @@ function townTrader(ui, p, g, s) {
 }
 
 function townFest(ui, p, g, s) {
-  p.appendChild(h('div', 'card', `<b>🎉 별빛 축제</b> ${isFestival() ? '<span class="sp">진행 중!</span>' : '<span class="mut">토 · 일요일에 열립니다</span>'}
-    <div class="mut">축제 동안 몬스터를 잡으면 20% 확률로 🍬 별사탕 (보스는 5개) · 별사탕은 축제가 끝나도 남습니다</div><div style="margin-top:4px">🍬 별사탕 <b>${fmt(s.candy || 0)}</b></div>`));
-  for (const x of FEST_SHOP) {
-    const isPet = x.id === 'pet:cat';
-    const it = isPet ? { icon: '🐈', name: '축제 고양이 (펫) · ' + spText(PET.cat?.fx) } : ITEMS[x.id];
-    const owned = isPet && s.pets.includes('cat');
-    const r = h('div', 'row' + (owned ? ' lock' : ''), `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name}</div></div><button class="btn sm pri"${!owned && (s.candy || 0) >= x.price ? '' : ' disabled'}>${owned ? '보유' : `🍬 ${x.price}`}</button>`);
+  const t = g.festTier();
+  p.appendChild(h('div', 'card', `<b>🎉 별빛 축제</b> <span class="sp">매일 진행 중!</span>
+    <div class="mut">몬스터를 잡으면 20% 확률로 🍬 별사탕 (보스는 5개) · 드롭률 보너스 적용 · 물건은 내 단계(${TIERS[t].n})에 맞춰 바뀝니다</div><div style="margin-top:4px">🍬 별사탕 <b>${fmt(s.candy || 0)}</b></div>`));
+  let grp = '';
+  for (const x of festShop(t)) {
+    if (x.g !== grp) { grp = x.g; p.appendChild(h('div', 'h', grp)); }
+    const pet = x.pet ? PET[x.pet] : null;
+    const it = pet || ITEMS[x.id];
+    const owned = pet && s.pets.includes(pet.id);
+    const info = pet ? spText(pet.fx) : `x${fmt(x.n)}${it.kind === 'potion' ? ' · ' + spText(it.fx) : ''}`;
+    const r = h('div', 'row' + (owned ? ' lock' : ''), `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name}</div><div class="mut sp">${info}</div></div><button class="btn sm pri"${!owned && (s.candy || 0) >= x.price ? '' : ' disabled'}>${owned ? '보유' : `🍬 ${fmt(x.price)}`}</button>`);
     r.querySelector('button').addEventListener('click', () => g.festBuy(x));
     p.appendChild(r);
   }

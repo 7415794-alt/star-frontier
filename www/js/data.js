@@ -1,6 +1,6 @@
 // 별무리 개척기 — 게임 데이터 (수치는 모두 이 게임용으로 설계)
-export const VERSION = '0.4.0';
-export const MAX_LVL = 100;
+export const VERSION = '0.5.0';
+export const MAX_LVL = 200;
 export const SPEEDS = [1, 2, 4, 8, 16, 32];
 
 // 레벨 L까지 필요한 누적 경험치
@@ -47,6 +47,10 @@ export const TIERS = [
   { n: '용린', lvl: 70, v: 155, c: '#ef4444' },
   { n: '별철', lvl: 85, v: 210, c: '#facc15' },
   { n: '천공', lvl: 95, v: 275, c: '#e879f9' },
+  // 10 ~ 21단계 (Lv 100 이후): 기본값 v는 레벨^1.8 비율로 오름
+  ...[['성휘', 105, '#fde68a'], ['월광', 115, '#c7d2fe'], ['태양', 125, '#fb923c'], ['혜성', 135, '#67e8f9'], ['성운', 145, '#d8b4fe'], ['은하', 155, '#93c5fd'],
+    ['오로라', 165, '#6ee7b7'], ['차원', 175, '#a78bfa'], ['영원', 182, '#fcd34d'], ['신역', 188, '#fef3c7'], ['창세', 194, '#f9a8d4'], ['무한', 200, '#ffffff']]
+    .map(([n, lvl, c]) => ({ n, lvl, v: Math.round(275 * (lvl / 95) ** 1.8), c })),
 ];
 
 // ---------- 장비 스탯 ----------
@@ -113,6 +117,10 @@ export const SPELLS = [
   { id: 'quake', name: '대지 분쇄', icon: '🌋', lvl: 55, mult: 1.15 },
   { id: 'radiance', name: '성광', icon: '🌟', lvl: 70, mult: 1.19 },
   { id: 'meteor', name: '유성 낙하', icon: '🌠', lvl: 85, mult: 1.24 },
+  { id: 'moonstorm', name: '월광 폭풍', icon: '🌙', lvl: 110, mult: 1.29 },
+  { id: 'comet', name: '혜성 강하', icon: '☄️', lvl: 140, mult: 1.34 },
+  { id: 'rift', name: '차원 붕괴', icon: '🌀', lvl: 170, mult: 1.4 },
+  { id: 'genesis', name: '창세의 빛', icon: '✴️', lvl: 195, mult: 1.46 },
 ];
 
 // ---------- 재료 ----------
@@ -122,6 +130,15 @@ const FISH = ['피라미', '송어', '연어', '참치', '바닷가재', '황새
 const BONES = ['작은 뼈', '뼈', '큰 뼈', '짐승 뼈', '거인 뼈', '비룡 뼈', '용 뼈', '별의 뼈', '천공의 뼈'];
 const GEMS = ['석영', '사파이어', '에메랄드', '루비', '자수정', '다이아몬드', '용안석', '별의 결정', '천공의 눈물'];
 export const FOOD_HEAL = [8, 20, 36, 55, 77, 100, 130, 165, 205];
+const BONE_XP = [5, 10, 18, 28, 40, 55, 72, 92, 115];
+const XFISH = ['청새치', '가오리', '해룡', '빙어', '곰치', '철갑상어', '쏠배감펭', '은어', '개복치', '해마', '청상아리', '고래상어'];
+// 10단계부터 재료 이름 · 수치는 단계 이름으로 이어서 만듦
+for (let t = LOGS.length; t < TIERS.length; t++) {
+  const n = TIERS[t].n, k = t - 8;
+  LOGS.push(n + '목'); ORES.push(n + '석'); FISH.push(`${n} ${XFISH[(k - 1) % XFISH.length]}`); BONES.push(n + '의 뼈'); GEMS.push(n + ' 보석');
+  FOOD_HEAL.push(Math.round(205 + 45 * k + 2.6 * k * k));
+  BONE_XP.push(Math.round(115 * (1 + 0.24 * k) ** 1.15));
+}
 export const ITEMS = {};
 TIERS.forEach((T, t) => {
   const v = (k) => k * (t + 1) ** 2;
@@ -133,12 +150,13 @@ TIERS.forEach((T, t) => {
   ITEMS['food' + t] = { name: '구운 ' + FISH[t], icon: '🍖', kind: 'food', t, heal: FOOD_HEAL[t], value: v(6) };
   ITEMS['hide' + t] = { name: T.n + ' 가죽', icon: '🟫', kind: 'mat', t, value: v(6) };
   ITEMS['cloth' + t] = { name: T.n + ' 마력 천', icon: '🟪', kind: 'mat', t, value: v(6) };
-  ITEMS['bone' + t] = { name: BONES[t], icon: '🦴', kind: 'bone', t, xp: [5, 10, 18, 28, 40, 55, 72, 92, 115][t], value: v(2) };
+  ITEMS['bone' + t] = { name: BONES[t], icon: '🦴', kind: 'bone', t, xp: BONE_XP[t], value: v(2) };
 });
 ITEMS.burnt = { name: '탄 음식', icon: '⚫', kind: 'junk', value: 1 };
 
 // ---------- 약초 · 물약 (연금술) ----------
 const HERBS = ['쑥', '박하', '로즈마리', '세이지', '월계수', '만드라고라', '용혈초', '별꽃', '천공화'];
+for (let t = HERBS.length; t < TIERS.length; t++) HERBS.push(TIERS[t].n + '초');
 TIERS.forEach((T, t) => { ITEMS['herb' + t] = { name: HERBS[t], icon: '🌿', kind: 'mat', t, value: 4 * (t + 1) ** 2 }; });
 // 전투 물약: 스탯 % (최소 보장치) · 250번 공격 동안 / 기타 물약: 효과 · 횟수
 export const POTION_TYPES = [
@@ -165,6 +183,7 @@ TIERS.forEach((T, t) => {
 
 // ---------- 채집 도구 (채집 속도) ----------
 export const TOOL_SPEED = [0.05, 0.1, 0.16, 0.23, 0.31, 0.4, 0.5, 0.62, 0.75];
+for (let t = TOOL_SPEED.length; t < TIERS.length; t++) TOOL_SPEED.push(Math.round((0.75 + 0.1 * (t - 8)) * 100) / 100);
 export const TOOLS = { wood: { n: '벌목 도끼', icon: '🪓' }, mine: { n: '곡괭이', icon: '⛏️' }, fish: { n: '낚싯대', icon: '🎣' } };
 TIERS.forEach((T, t) => {
   for (const [sk, tl] of Object.entries(TOOLS)) ITEMS[`tool_${sk}${t}`] = { name: `${T.n} ${tl.n}`, icon: tl.icon, kind: 'tool', skill: sk, t, gspd: TOOL_SPEED[t], req: [sk, T.lvl], value: 40 * (t + 1) ** 2 };
@@ -306,36 +325,68 @@ function lootTable(style, t, i, boss) {
   return [...seen.values()];
 }
 // 몬스터 능력치: 레벨에 따라 체력 · 공격(명중) · 힘(피해) · 방어가 오름. 상성: 약점 방식엔 방어 x0.5, 같은 방식엔 x1.4
-function makeMonster(name, icon, L, style, boss, z, i) {
+const MSTAT = (L, a, k, e, e2) => (L <= 100 ? a + k * L ** e : (a + k * 100 ** e) * (L / 100) ** e2);
+function makeMonster(name, icon, L, style, boss, z, i, t = z) {
   const b = boss ? 1.25 : 1;
   const defMul = { melee: 1, ranged: 1, magic: 1 };
   defMul[WEAK[style]] = 0.5;
   defMul[style] = 1.4;
   return {
-    id: `m${z}_${i}`, name, icon, lvl: L, style, boss, z,
-    hp: Math.round((15 + 0.0516 * L ** 2.45) * (boss ? 3 : 1)),
-    atk: Math.round((2 + 0.058 * L ** 1.92) * b),
-    str: Math.round((2 + 0.137 * L ** 1.71) * b),
-    def: Math.round((1 + 0.176 * L ** 1.45) * b),
+    id: `m${z}_${i}`, name, icon, lvl: L, style, boss, z, t,
+    hp: Math.round(MSTAT(L, 15, 0.0516, 2.45, 2.0) * (boss ? 3 : 1)),
+    atk: Math.round(MSTAT(L, 2, 0.058, 1.92, 1.75) * b),
+    str: Math.round(MSTAT(L, 2, 0.137, 1.71, 1.6) * b),
+    def: Math.round(MSTAT(L, 1, 0.176, 1.45, 1.45) * b),
     defMul,
     interval: Math.round(([2.6, 2.4, 3.0][i % 3] + (boss ? 0.2 : 0)) * 10) / 10,
     weak: WEAK[style],
-    coins: [L * 1 + 2, L * 3 + 5].map((x) => Math.round(x * (boss ? 6 : 1))),
-    loot: lootTable(style, z, i, boss),
+    coins: [L * 3 + 6, L * 8 + 15].map((x) => Math.round(x * (1 + L / 60) * (boss ? 6 : 1))),
+    loot: lootTable(style, t, i, boss),
   };
 }
-export const ZONES = ZONE_DEFS.map((d, z) => ({
-  n: d.n, t: z, lvl: d.base,
-  mons: [
-    ...d.mons.map(([n, ic], i) => makeMonster(n, ic, d.base + i * 4, ROT[(z + i) % 3], false, z, i)),
-    makeMonster(d.boss[0], d.boss[1], d.base + 12, ROT[z % 3], true, z, 3),
-  ],
-}));
+// 중간 지역 · 새 지역: [이름, 시작 레벨, 단계] (몬스터 이름은 지역 이름으로 만듦)
+const MID_ZONES = [
+  ['들꽃 언덕', 5, 0], ['버섯 동굴', 15, 1], ['녹슨 갱도', 25, 2], ['버려진 수도원', 36, 3], ['얼음 동굴', 48, 4], ['구름 다리', 62, 5], ['화산 기슭', 77, 6], ['부서진 별탑', 90, 7], ['천공 회랑', 100, 8],
+  ['성휘 평원', 105, 9], ['빛의 숲', 110, 9], ['월광 호수', 115, 10], ['달그림자 계곡', 120, 10], ['태양 사막', 125, 11], ['불타는 신전', 130, 11],
+  ['혜성 낙하지', 135, 12], ['꼬리별 협곡', 140, 12], ['성운 정원', 145, 13], ['안개 성운', 150, 13], ['은하 항구', 155, 14], ['은빛 강', 160, 14],
+  ['오로라 설원', 165, 15], ['극광 빙궁', 170, 15], ['차원 균열', 175, 16], ['뒤틀린 미궁', 178, 16], ['영원의 도서관', 182, 17], ['시간의 정원', 185, 17],
+  ['신역 성소', 188, 18], ['천사의 계단', 191, 18], ['창세의 대지', 194, 19], ['태초의 바다', 197, 19], ['무한의 끝', 200, 20], ['공허 왕좌', 208, 20], ['별무리 심연', 216, 20], ['마지막 별', 224, 20],
+];
+const KINDS = {
+  melee: [['전사', '⚔️'], ['골렘', '🗿'], ['짐승', '🐗'], ['기사', '🛡️'], ['거인', '🧌']],
+  ranged: [['궁수', '🏹'], ['사냥꾼', '🎯'], ['투척병', '🪃'], ['저격수', '🔭']],
+  magic: [['술사', '🧙'], ['정령', '👻'], ['마녀', '🧹'], ['현자', '📜']],
+};
+const BOSS_T = [['군주', '🐉'], ['여왕', '🦂'], ['수호자', '🦖'], ['왕', '🐙'], ['파괴자', '👹'], ['지배자', '🧞'], ['포식자', '🐺'], ['대현자', '🦉']];
+// 처음 9개 지역은 그대로 (기록 유지), 나머지는 레벨 순서로 사이사이에 들어감
+export const ZONES = [
+  ...ZONE_DEFS.map((d, z) => ({
+    n: d.n, t: z, z, lvl: d.base, base: true,
+    mons: [
+      ...d.mons.map(([n, ic], i) => makeMonster(n, ic, d.base + i * 4, ROT[(z + i) % 3], false, z, i)),
+      makeMonster(d.boss[0], d.boss[1], d.base + 12, ROT[z % 3], true, z, 3),
+    ],
+  })),
+  ...MID_ZONES.map(([n, L, t], k) => {
+    const z = 'n' + k, adj = n.split(' ')[0].replace(/의$/, '');
+    // 새 단계의 첫 지역은 그 단계의 대표 지역 (의뢰가 붙음)
+    const base = t >= 9 && L === TIERS[t].lvl;
+    return {
+      n, t, z, lvl: L, base,
+      mons: [
+        ...[0, 1, 2].map((i) => { const st = ROT[(k + i) % 3], kd = KINDS[st][(k + i * 2) % KINDS[st].length]; return makeMonster(`${adj} ${kd[0]}`, kd[1], L + i * 2, st, false, z, i, t); }),
+        (() => { const bt = BOSS_T[k % BOSS_T.length]; return makeMonster(`${adj}의 ${bt[0]}`, bt[1], L + 6, ROT[k % 3], true, z, 3, t); })(),
+      ],
+    };
+  }),
+].sort((a, b) => a.lvl - b.lvl || (b.base ? 1 : 0) - (a.base ? 1 : 0));
 export const MONSTER = Object.fromEntries(ZONES.flatMap((zn) => zn.mons.map((m) => [m.id, m])));
 
 // ---------- 생활 스킬 행동 ----------
 const GATHER_XP = [10, 18, 30, 45, 65, 90, 120, 155, 195];
-const STEAL = [['시장 좌판', '🧺'], ['농장 창고', '🧑‍🌾'], ['순찰병 주머니', '💂'], ['길드 회계실', '📒'], ['귀족 저택', '🏛️'], ['마탑 연구실', '🗼'], ['용 사원 보물고', '🐲'], ['별의 금고', '🌌'], ['천공 보물실', '👑']];
+for (let t = GATHER_XP.length; t < TIERS.length; t++) GATHER_XP.push(Math.round(195 * (TIERS[t].lvl / 95) ** 1.6));
+const STEAL = [['시장 좌판', '🧺'], ['농장 창고', '🧑‍🌾'], ['순찰병 주머니', '💂'], ['길드 회계실', '📒'], ['귀족 저택', '🏛️'], ['마탑 연구실', '🗼'], ['용 사원 보물고', '🐲'], ['별의 금고', '🌌'], ['천공 보물실', '👑'],
+  ['성휘 성당', '⛪'], ['월광 상단', '🐫'], ['태양 궁전', '🏯'], ['혜성 관측소', '🔭'], ['성운 도서관', '📚'], ['은하 은행', '🏦'], ['오로라 성채', '🏰'], ['차원 창고', '🌀'], ['영원의 보물고', '⏳'], ['신역 제단', '🕍'], ['창세 금고', '💠'], ['무한 회랑', '♾️']];
 export const ACTIONS = {};
 const addAct = (skill, a) => { (ACTIONS[skill] ||= []).push(a); };
 TIERS.forEach((T, t) => {
@@ -429,7 +480,15 @@ export const PETS = [
   { id: 'squid', name: '꼬마 오징어', icon: '🦑', src: 'sboss:fish', srcText: '심해의 군주 (스킬 보스) · 확률 1/40', p: 1 / 40, fx: { heal: 0.2, hpTick: 8 } },
   { id: 'ninja', name: '그림자 고양이', icon: '🐈‍⬛', src: 'sboss:steal', srcText: '그림자 도둑왕 (스킬 보스) · 확률 1/40', p: 1 / 40, fx: { thief: 0.08 } },
   { id: 'whale', name: '아기 별고래', icon: '🐋', src: 'wboss', srcText: '세계 보스 (기여도 높을수록) · 최대 1/60', p: 1 / 60, fx: { bossDmg: 0.12, drop: 0.06, hpTick: 10 } },
-  { id: 'cat', name: '축제 고양이', icon: '🐈', src: 'event', p: 0, fx: { gspd: 0.1, pspd: 0.1 } },
+  { id: 'cat', name: '축제 고양이', icon: '🐈', src: 'event', p: 0, price: 300, fx: { gspd: 0.1, pspd: 0.1 } },
+  { id: 'fox', name: '불꽃 여우', icon: '🦊', src: 'event', p: 0, price: 500, fx: { drop: 0.08, gspd: 0.05 } },
+  { id: 'rabbit', name: '달토끼', icon: '🐇', src: 'event', p: 0, price: 600, fx: { pspd: 0.1, cspd: 0.1 } },
+  { id: 'penguin', name: '별 펭귄', icon: '🐧', src: 'event', p: 0, price: 800, fx: { hpTick: 15, defPct: 0.05 } },
+  { id: 'turtle', name: '행운 거북', icon: '🐢', src: 'event', p: 0, price: 1000, fx: { thief: 0.1, drop: 0.05 } },
+  { id: 'parrot', name: '무지개 앵무새', icon: '🦜', src: 'event', p: 0, price: 1200, fx: { sxp: 0.1, gxp: 0.05 } },
+  { id: 'pig', name: '황금 돼지', icon: '🐖', src: 'event', p: 0, price: 1500, fx: { drop: 0.12 } },
+  { id: 'unicorn', name: '꼬마 유니콘', icon: '🦄', src: 'event', p: 0, price: 2500, fx: { atkPct: 0.06, strPct: 0.06, rngPct: 0.06, magPct: 0.06 } },
+  { id: 'phoenix', name: '아기 불사조', icon: '🐦‍🔥', src: 'event', p: 0, price: 4000, fx: { hpTick: 20, ls: 0.015, bossDmg: 0.1 } },
 ];
 export const PET = Object.fromEntries(PETS.map((p) => [p.id, p]));
 

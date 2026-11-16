@@ -138,7 +138,6 @@ P.kill = function (m) {
   const e = KFX.find((x) => x.id === s.kfxOn)?.e;
   if (e) this.fx('mon', e, 'kfx');
   if (!m.boss) return;
-  if (s.cele !== false) this.celebrate(`👑 ${m.name} 처치!`);
   const mul = this.dropMult(m);
   if (Math.random() < ULTRA_GEAR * mul) {
     const gl = m.loot.filter((l) => ITEMS[l.id]?.kind === 'gear');
@@ -153,7 +152,7 @@ P.kill = function (m) {
     }
   }
   if (Math.random() < ULTRA_TOME * mul) {
-    const c = TOMES.filter((tm) => tm.z <= m.z);
+    const c = TOMES.filter((tm) => tm.z <= m.t);
     if (c.length) { const tm = pick(c); this.gain(tm.id, 1); this.toast(`📕 기도서 발견! ${ITEMS[tm.id].name}`, 'pet'); this.celebrate(`📕 ${ITEMS[tm.id].name}`); }
   }
 };
@@ -462,7 +461,7 @@ function townBoss(ui, p, g, s) {
 }
 
 function townDeco(ui, p, g, s) {
-  const c = h('div', 'card', `<label class="tg"><input type="checkbox" class="ce"${s.cele !== false ? ' checked' : ''}> 👑 보스 처치 축하 화면</label>`);
+  const c = h('div', 'card', `<label class="tg"><input type="checkbox" class="ce"${s.cele !== false ? ' checked' : ''}> 🌟 초희귀 드롭 · 스킬 보스 격파 축하 화면 <span class="mut">(지역 보스는 표시 안 함)</span></label>`);
   c.querySelector('.ce').addEventListener('change', (e) => { s.cele = e.target.checked; });
   p.appendChild(c);
   p.appendChild(h('div', 'h', '💥 처치 효과 (몬스터를 잡을 때 떠오름 · 꾸미기 전용)'));
@@ -474,3 +473,231 @@ function townDeco(ui, p, g, s) {
     p.appendChild(r);
   }
 }
+
+// ====================== v0.5: 조합 · 자동 판매 · 방식별 장비 · 함께 사냥 · 자동 의뢰 ======================
+import { SLOT_IDS, MONSTER } from './data.js';
+import { QUESTS } from './town.js';
+
+// 장착 비교 결과 기억 (같은 상태에서 다시 계산하지 않아 렉 감소)
+P.stateKey = function () {
+  const s = this.s;
+  return JSON.stringify([s.equip, s.prayer, s.pet, Object.keys(s.effects || {}), ['atk', 'str', 'def', 'rng', 'mag'].map((k) => this.lvl(k)), this.ammoId(), s.tomes?.length, Object.keys(s.museum || {}).length, s.talents]);
+};
+const _ed = P.equipDelta;
+P.equipDelta = function (id) {
+  const k = this.stateKey();
+  if (this._edKey !== k) { this._edKey = k; this._ed = new Map(); }
+  if (!this._ed.has(id)) this._ed.set(id, _ed.call(this, id));
+  return this._ed.get(id);
+};
+
+// 같은 장비(같은 단계 · 같은 등급) 3개 + 골드 → 한 등급 위. 비용 = 결과 장비 가치의 60%
+export const COMBINE_N = 3;
+P.combineCost = function (id) { const it = ITEMS[id]; return it.r >= 8 ? Infinity : Math.round(ITEMS[gearId(it.base, it.r + 1)].value * 0.6); };
+P.combinable = function () { return Object.keys(this.s.bank).filter((id) => ITEMS[id]?.kind === 'gear' && ITEMS[id].r < 8 && this.have(id) >= COMBINE_N); };
+P.combineAll = function () {
+  let made = 0, spent = 0, short = false;
+  const out = new Set();
+  for (let r = 1; r < 8; r++) {
+    for (const id of Object.keys(this.s.bank)) {
+      const it = ITEMS[id];
+      if (it?.kind !== 'gear' || it.r !== r) continue;
+      const nid = gearId(it.base, r + 1), c = this.combineCost(id);
+      while (this.have(id) >= COMBINE_N) {
+        if (this.s.coins < c) { short = true; break; }
+        this.s.coins -= c; spent += c;
+        this.give(id, -COMBINE_N); this.give(nid, 1);
+        this.s.log.gear[nid] = (this.s.log.gear[nid] || 0) + 1;
+        out.add(nid); made++;
+      }
+    }
+  }
+  for (const id of out) if (this.have(id) > 0) this.autoEquipCheck(id);
+  this.toast(made ? `⚒️ 조합 ${fmt(made)}번 · 💰 -${fmt(spent)}${short ? ' (골드 부족으로 일부만)' : ''}` : short ? '골드가 부족합니다' : '조합할 장비가 없습니다 (같은 장비 3개 필요)', made ? 'loot' : 'bad');
+  return { made, spent };
+};
+// 유물(최고 등급)까지 올려도 지금 낀 장비보다 약하면 판매. 다른 전투 방식 장비 · 빈 칸 장비는 남김
+const STYLE_REQ = { melee: ['atk', 'str', 'def'], ranged: ['rng', 'def'], magic: ['mag', 'def'] };
+P.uselessGear = function () {
+  const st = this.style(), list = [];
+  for (const id of Object.keys(this.s.bank)) {
+    const it = ITEMS[id];
+    if (it?.kind !== 'gear' || !this.s.equip[it.slot]) continue;
+    if (it.slot === 'weapon' ? it.style !== st : !STYLE_REQ[st].includes(it.req[0])) continue;
+    if (this.equipDelta(gearId(it.base, 8)) <= 0) list.push(id);
+  }
+  return list;
+};
+P.sellUseless = function () {
+  let n = 0, coins = 0;
+  for (const id of this.uselessGear()) { n += this.have(id); coins += this.sell(id, this.have(id)); }
+  this.toast(n ? `💰 약한 장비 ${fmt(n)}개 판매 · +${fmt(coins)}` : '팔 장비가 없습니다', n ? 'loot' : 'bad');
+  return { n, coins };
+};
+
+// 전투 방식별 가장 강한 장비 조합 (전투력 기준)
+P.bestLoadout = function (style) {
+  const s = this.s, eq0 = { ...s.equip };
+  const pool = {};
+  for (const id of new Set([...Object.keys(s.bank), ...Object.values(eq0)])) {
+    const it = ITEMS[id];
+    if (it?.kind === 'gear' && this.canEquip(id)) (pool[it.slot] ||= []).push(id);
+  }
+  const weapons = (pool.weapon || []).filter((id) => ITEMS[id].style === style);
+  if (!weapons.length) return null;
+  const ev = (eq) => { s.equip = eq; this.dirty(); return this.powerRaw(); };
+  const eq = { ...eq0 };
+  let bw = null, bp = -1;
+  try {
+    for (const w of weapons) { const e = { ...eq, weapon: w }; if (ITEMS[w].twoHand) delete e.shield; const pw = ev(e); if (pw > bp) { bp = pw; bw = w; } }
+    eq.weapon = bw;
+    if (ITEMS[bw].twoHand) delete eq.shield;
+    for (const sl of SLOT_IDS) {
+      if (sl === 'weapon' || (sl === 'shield' && ITEMS[bw].twoHand)) continue;
+      let cur = ev(eq), pk = eq[sl];
+      for (const id of pool[sl] || []) { const pw = ev({ ...eq, [sl]: id }); if (pw > cur) { cur = pw; pk = id; } }
+      if (pk) eq[sl] = pk;
+    }
+    return { eq, power: ev(eq) };
+  } finally { s.equip = eq0; this.dirty(); }
+};
+P.loadoutPowers = function () {
+  const k = JSON.stringify([Object.keys(this.s.bank).filter((id) => ITEMS[id]?.kind === 'gear'), this.stateKey()]);
+  if (this._loKey !== k) {
+    this._lo = Object.fromEntries(['melee', 'ranged', 'magic'].map((st) => [st, this.bestLoadout(st)]));
+    this._loKey = k;
+  }
+  return this._lo;
+};
+P.applyLoadout = function (style) {
+  const L = this.bestLoadout(style);
+  if (!L) { this.toast(`${STYLES[style].name} 무기가 없습니다`, 'bad'); return false; }
+  if (L.eq.weapon !== this.s.equip.weapon) this.equip(L.eq.weapon);
+  for (const sl of SLOT_IDS) if (sl !== 'weapon' && L.eq[sl] && L.eq[sl] !== this.s.equip[sl]) this.equip(L.eq[sl]);
+  this.toast(`${STYLES[style].icon} ${STYLES[style].name} 장비로 교체 · 전투력 ${fmt(this.power())}`, 'loot');
+  return true;
+};
+
+// 스킬 · 뼈 묻기 중에도 마지막으로 싸운 몬스터와 계속 사냥
+const _sc = P.startCombat;
+P.startCombat = function (monId) { const r = _sc.call(this, monId); if (r) this.s.huntMon = monId; return r; };
+P.bgHunting = function () {
+  const A = this.s.activity;
+  return (A?.type === 'skill' || A?.type === 'bury') && this.s.bgHunt !== false && !!MONSTER[this.s.huntMon];
+};
+const _upd2 = P.update;
+P.update = function (dt) {
+  _upd2.call(this, dt);
+  if (this.bgHunting()) this.combatTick(dt);
+  // 자동 의뢰 (게임 시간 2초마다)
+  this.rt.aqT = (this.rt.aqT || 0) + dt;
+  if (this.rt.aqT >= 2) { this.rt.aqT = 0; if (this.s.autoQuest !== false) this.autoQuest(); }
+};
+P.autoQuest = function () {
+  const Q = this.s.quests;
+  if (!Q) return;
+  for (const id of Object.keys(Q.active)) this.claimQuest(id);
+  const open = Object.keys(Q.active).length;
+  if (open >= 3) return;
+  const mon = this.s.activity?.type === 'combat' ? this.s.activity.mon : this.s.huntMon;
+  const cand = QUESTS.filter((q) => Q.active[q.id] == null && !Q.done.includes(q.id) && this.questOpen(q));
+  // 지금 잡는 몬스터 → 전투 레벨 → 나머지 토벌 → 납품 순서
+  const score = (q) => (q.target === mon ? 0 : q.type === 'clvl' ? 1 : q.type === 'kill' ? 2 : 3);
+  cand.sort((a, b) => score(a) - score(b));
+  for (const q of cand.slice(0, 3 - open)) this.acceptQuest(q.id);
+};
+const _ti2 = P.townInit;
+P.townInit = function () {
+  _ti2.call(this);
+  if (this.s.bgHunt == null) this.s.bgHunt = true;
+  if (this.s.autoQuest == null) this.s.autoQuest = true;
+};
+
+// ---------- 화면 ----------
+U.styleCard = function (p) {
+  const g = this.g, cur = g.style(), lo = g.loadoutPowers();
+  const c = h('div', 'seg');
+  for (const st of ['melee', 'ranged', 'magic']) {
+    const L = lo[st];
+    const b = h('button', st === cur ? 'on' : '', `${STYLES[st].icon} ${STYLES[st].name}<br><small>${L ? `전투력 ${fmt(L.power)}` : '무기 없음'}</small>`);
+    if (!L) b.disabled = true;
+    b.addEventListener('click', () => g.applyLoadout(st));
+    c.appendChild(b);
+  }
+  p.appendChild(c);
+};
+U.gearToolsCard = function (p) {
+  const g = this.g;
+  const cb = g.combinable();
+  const cost = cb.reduce((a, id) => a + g.combineCost(id) * Math.floor(g.have(id) / COMBINE_N), 0);
+  const ul = g.uselessGear();
+  const n = ul.reduce((a, id) => a + g.have(id), 0), val = ul.reduce((a, id) => a + (ITEMS[id].value || 0) * g.have(id), 0);
+  const c = h('div', 'card', `<b>⚒️ 장비 정리</b>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><button class="btn pri cmb"${cb.length ? '' : ' disabled'}>⚒️ 자동 조합 (${cb.length}종 · 💰${fmt(cost)}~)</button>
+    <button class="btn sel"${n ? '' : ' disabled'}>💰 약한 장비 판매 (${fmt(n)}개 · +${fmt(val)})</button></div>
+    <div class="mut">조합: 같은 장비 · 같은 등급 3개 + 골드 → 한 등급 위 (유물까지 이어서 조합) · 비용은 결과 장비 가치의 60%<br>판매: 유물까지 올려도 지금 낀 장비보다 전투력이 낮은 장비만 · 다른 전투 방식 장비와 빈 칸 장비는 남김</div>`);
+  c.querySelector('.cmb').addEventListener('click', () => g.combineAll());
+  c.querySelector('.sel').addEventListener('click', () => g.sellUseless());
+  p.appendChild(c);
+};
+U.bgHuntCard = function (p) {
+  const g = this.g, s = g.s, m = MONSTER[s.huntMon];
+  const c = h('div', 'card', `<label class="tg"><input type="checkbox" class="bh"${s.bgHunt !== false ? ' checked' : ''}> ⚔ 스킬 수련 중에도 사냥 계속</label>
+    <div class="mut">${m ? `${m.icon} ${m.name} (Lv ${m.lvl}) — 전투 탭에서 마지막으로 싸운 몬스터` : '전투 탭에서 몬스터와 한 번 싸우면 그 몬스터를 함께 사냥합니다'}</div>`);
+  c.querySelector('.bh').addEventListener('change', (e) => { s.bgHunt = e.target.checked; });
+  p.appendChild(c);
+};
+U.autoQuestCard = function (p) {
+  const s = this.g.s;
+  const c = h('div', 'card', `<label class="tg"><input type="checkbox" class="aq"${s.autoQuest !== false ? ' checked' : ''}> 🤖 의뢰 자동으로 받고 자동 완료</label><div class="mut">지금 잡는 몬스터 의뢰 → 전투 레벨 → 토벌 → 납품 순서로 받습니다</div>`);
+  c.querySelector('.aq').addEventListener('change', (e) => { s.autoQuest = e.target.checked; });
+  p.appendChild(c);
+};
+const _fx2 = U.frameX;
+U.frameX = function (act, A) {
+  _fx2.call(this, act, A);
+  const g = this.g, rt = g.rt;
+  if (!(A?.type === 'skill' || A?.type === 'bury')) return;
+  let d = act.querySelector('.bgh');
+  if (!d) { d = h('div', 'bgh mut'); (act.querySelector('.grow') || act).appendChild(d); this._bghT = 0; }
+  if (this._bghT && performance.now() - this._bghT < 250) return;
+  this._bghT = performance.now();
+  if (!g.bgHunting()) { d.textContent = ''; return; }
+  const m = MONSTER[g.s.huntMon], mx = g.maxHp();
+  d.textContent = `⚔ 함께 사냥: ${m.icon} ${m.name} ${rt.mon ? `${fmt(rt.monHp)}/${fmt(m.hp)}` : rt.dead > 0 ? `· 부활까지 ${rt.dead.toFixed(0)}초` : '· 다음 몬스터…'} · 내 체력 ${fmt(Math.max(0, rt.hp))}/${fmt(mx)} · 처치 ${fmt(g.s.kills?.[m.id] || 0)}`;
+};
+const _sig2 = U.sigX;
+U.sigX = function () { const s = this.g.s; return [..._sig2.call(this), s.bgHunt, s.huntMon, s.autoQuest]; };
+
+// 박물관 자동 기증: 지금 낀 장비보다 약하고 박물관 기록(등급)을 올려 주는 장비부터 기증
+P.donatable = function () {
+  const s = this.s, best = {};
+  for (const id of Object.keys(s.bank)) {
+    const it = ITEMS[id];
+    if (it?.kind !== 'gear' || it.r <= (s.museum?.[it.base] || 0)) continue;
+    if (best[it.base] && ITEMS[best[it.base]].r >= it.r) continue;
+    best[it.base] = id;
+  }
+  return Object.values(best).filter((id) => this.s.equip[ITEMS[id].slot] && (ITEMS[id].slot !== 'weapon' || ITEMS[id].style === this.style()) && this.equipDelta(id) <= 0);
+};
+P.autoDonate = function () {
+  let n = 0;
+  for (const id of this.donatable()) if (this.donate(id)) n++;
+  return n;
+};
+const _sell2 = P.sellUseless;
+P.sellUseless = function () { if (this.s.autoDonate !== false) this.autoDonate(); return _sell2.call(this); };
+const _upd3 = P.update;
+P.update = function (dt) {
+  _upd3.call(this, dt);
+  this.rt.adT = (this.rt.adT || 0) + dt;
+  if (this.rt.adT >= 10) { this.rt.adT = 0; if (this.s.autoDonate !== false && this.s.museum) this.autoDonate(); }
+};
+U.autoDonateCard = function (p) {
+  const s = this.g.s;
+  const c = h('div', 'card', `<label class="tg"><input type="checkbox" class="ad"${s.autoDonate !== false ? ' checked' : ''}> 🏛️ 자동 기증</label><div class="mut">지금 낀 장비보다 약하고 박물관 기록(등급)을 올려 주는 장비를 자동으로 기증합니다 · 약한 장비 판매 전에도 먼저 기증</div>`);
+  c.querySelector('.ad').addEventListener('change', (e) => { s.autoDonate = e.target.checked; });
+  p.appendChild(c);
+};
+const _sig3 = U.sigX;
+U.sigX = function () { return [..._sig3.call(this), this.g.s.autoDonate]; };

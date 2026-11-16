@@ -334,7 +334,8 @@ export class Game {
 
   // ---------- 전투 ----------
   spawn() {
-    const m = MONSTER[this.s.activity?.mon];
+    const A = this.s.activity;
+    const m = MONSTER[A?.type === 'combat' ? A.mon : this.s.huntMon];
     if (!m) { this.rt.mon = null; return; }
     this.rt.mon = m;
     this.rt.monHp = m.hp;

@@ -36,7 +36,9 @@ export function tabCodex(ui, p) {
 
 function codexMon(ui, p, g, s) {
   p.appendChild(h('div', 'card mut', `🏹 사냥꾼 숙련: 같은 몬스터를 ${HUNT_TIERS.join(' / ')}마리 잡을 때마다 한 단계씩, 그 몬스터 상대로 드롭률 +${pct(HUNT_PER.drop)} · 피해 +${pct(HUNT_PER.dmg)} · 방어 +${pct(HUNT_PER.def, 1)} (최대 ${HUNT_TIERS.length}단계)`));
-  for (const z of ZONES) {
+  const near = g.combatLevel() + 15;
+  const zl = ZONES.filter((z) => z.lvl <= near || z.mons.some((m) => s.kills?.[m.id]));
+  for (const z of zl) {
     p.appendChild(h('div', 'h', `${z.n} <span class="mut">Lv ${z.lvl}+</span>`));
     for (const m of z.mons) {
       const k = s.kills?.[m.id] || 0;
@@ -52,6 +54,7 @@ function codexMon(ui, p, g, s) {
       p.appendChild(r);
     }
   }
+  if (zl.length < ZONES.length) p.appendChild(h('div', 'mut', `더 높은 지역 ${ZONES.length - zl.length}곳은 전투 레벨이 오르면 보입니다`));
 }
 
 function codexLog(ui, p, g, s) {

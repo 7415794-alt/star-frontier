@@ -33,10 +33,11 @@ export class UI {
     this.g = game;
     this.hooks = hooks;
     this.tab = 'combat';
-    this.zone = 0;
+    this.zone = Math.max(0, ZONES.findIndex((z) => z.mons.some((m) => m.id === (game.s.activity?.mon || game.s.huntMon))));
     this.skillSel = 'wood';
     this.sig = '';
     this.recMode = 'real';
+    document.addEventListener('change', (e) => { if (e.target.tagName === 'SELECT') setTimeout(() => e.target.blur(), 0); });
     $('#spdBtn').addEventListener('click', () => { this.g.cycleSpeed(); this.g.toast(`⏩ 게임 속도 x${this.g.speed()}`); });
     document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { this.tab = b.dataset.tab; this.render(true); }));
     $('#act').addEventListener('click', (e) => { if (e.target.id === 'stopBtn') this.g.stop(); });
@@ -59,9 +60,15 @@ export class UI {
     return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.favPrayer, s.favPet, s.sfx, s.cb, Object.values(s.effects || {}).map((e) => e.id), s.tools, s.life, s.autoPot, s.quests, s.talents, s.museum, s.trader, s.candy, this.town, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0, this.sigX ? this.sigX() : 0]);
   }
   render(force = false) {
+    const ae = document.activeElement;
+    if (!force && ae?.closest?.('#panel') && (ae.tagName === 'SELECT' || (ae.tagName === 'INPUT' && /^(text|search|number)$/.test(ae.type)))) return;
+    const view = [this.tab, this.zone, this.skillSel, this.town, this.codex].join('|');
+    if (!force && view === this._view && performance.now() - (this._rT || 0) < 300) return;
     const sig = this.signature();
     if (!force && sig === this.sig) return;
     this.sig = sig;
+    this._view = view;
+    this._rT = performance.now();
     const p = $('#panel');
     const top = p.scrollTop;
     p.innerHTML = '';
@@ -182,6 +189,8 @@ export class UI {
       </div>
       <div class="mut" style="margin-top:4px">최종 스탯 = 레벨 + 장비 · 경험치: ${st === 'melee' ? '공격 · 힘' : STYLES[st].name} 100% + 방어 70%</div>`);
     p.appendChild(card);
+    this.styleCard?.(p);
+    this.swapStrip(p);
     this.effCard(p);
     this.ammoCard?.(p);
     if (st === 'magic') {
@@ -196,13 +205,11 @@ export class UI {
       p.appendChild(sp);
     }
 
-    const seg = h('div', 'seg');
-    ZONES.forEach((z, i) => {
-      const bt = h('button', i === this.zone ? 'on' : '', `${z.n}<br><small>Lv ${z.lvl}+</small>`);
-      bt.addEventListener('click', () => { this.zone = i; });
-      seg.appendChild(bt);
-    });
-    p.appendChild(seg);
+    const zs = h('div', 'card', `<div style="display:flex;gap:6px;align-items:center"><button class="btn sm zp">◀</button><select class="zsel" style="flex:1;min-width:0">${ZONES.map((z, i) => `<option value="${i}"${i === this.zone ? ' selected' : ''}>${z.n} · Lv ${z.lvl}+ · ${TIERS[z.t].n}</option>`).join('')}</select><button class="btn sm zn">▶</button></div><div class="mut">지역 ${this.zone + 1} / ${ZONES.length}</div>`);
+    $('.zsel', zs).addEventListener('change', (e) => { this.zone = +e.target.value; });
+    $('.zp', zs).addEventListener('click', () => { this.zone = Math.max(0, this.zone - 1); });
+    $('.zn', zs).addEventListener('click', () => { this.zone = Math.min(ZONES.length - 1, this.zone + 1); });
+    p.appendChild(zs);
     const zn = ZONES[this.zone];
     for (const m of zn.mons) {
       const v = g.vs(m);
@@ -261,6 +268,7 @@ export class UI {
   tabSkills(p) {
     const g = this.g, s = g.s;
     this.swapStrip(p);
+    this.bgHuntCard?.(p);
     for (const [ty, nm] of [['gather', '⛏️ 채집'], ['make', '🔨 가공 · 제작'], ['support', '✨ 기타']]) {
       p.appendChild(h('div', 'mut', nm));
       const list = h('div', 'grid2');
@@ -292,7 +300,9 @@ export class UI {
     }
     if (k.type === 'make' || k.type === 'gather') this.effCard(p);
     let group = '';
-    for (const a of ACTIONS[k.id]) {
+    const hiL = g.lvl(k.id) + 15;
+    const hidden = ACTIONS[k.id].filter((a) => a.lvl > hiL).length;
+    for (const a of ACTIONS[k.id].filter((x) => x.lvl <= hiL)) {
       if (a.group && a.group !== group) { group = a.group; p.appendChild(h('div', 'mut', group)); }
       const lock = g.lvl(k.id) < a.lvl;
       const on = s.activity?.type === 'skill' && s.activity.act === a.id && s.activity.skill === k.id;
@@ -307,6 +317,7 @@ export class UI {
       $('button', r).addEventListener('click', () => { if (on) g.stop(); else g.startSkill(k.id, a.id); });
       p.appendChild(r);
     }
+    if (hidden) p.appendChild(h('div', 'mut', `더 높은 행동 ${hidden}개는 레벨이 오르면 보입니다`));
     const pet = PETS.find((x) => x.src === k.id);
     if (pet) p.appendChild(h('div', 'card mut', `행동마다 펫 ${pet.icon} ${pet.name} 확률 1/${Math.round(1 / pet.p)} · 레벨이 요구 레벨보다 높을수록 빨라짐 (1레벨당 +1%, 최대 2배)`));
   }
@@ -342,6 +353,7 @@ export class UI {
     $('.fd', ae).addEventListener('change', (e) => { s.favorDef = e.target.checked; });
     $('.hw', ae).addEventListener('change', (e) => { s.hideWeak = e.target.checked; });
     p.appendChild(ae);
+    this.gearToolsCard?.(p);
     p.appendChild(h('div', 'h', '가방의 장비'));
     const gear = Object.keys(s.bank).filter((id) => ITEMS[id].kind === 'gear').sort((a, c) => ITEMS[c].t - ITEMS[a].t || ITEMS[a].slot.localeCompare(ITEMS[c].slot) || ITEMS[c].r - ITEMS[a].r);
     if (!gear.length) p.appendChild(h('div', 'mut', '장비가 없습니다. 몬스터 드롭 · 대장 · 공예로 얻습니다.'));
@@ -448,7 +460,7 @@ export class UI {
     for (const pet of [...PETS].sort((a, b) => s.favPet.includes(b.id) - s.favPet.includes(a.id))) {
       const own = s.pets.includes(pet.id);
       const on = s.pet === pet.id;
-      const src = pet.srcText ? pet.srcText : pet.src.startsWith('boss:') ? `${ZONES[+pet.src.slice(5)].mons[3].name} 처치 · 확률 1/${Math.round(1 / pet.p)}` : pet.src === 'event' ? '🎉 별빛 축제 상점' : `${SKILL[pet.src].name} 행동 · 확률 1/${Math.round(1 / pet.p)}`;
+      const src = pet.srcText ? pet.srcText : pet.src.startsWith('boss:') ? `${MONSTER_OF('m' + pet.src.slice(5) + '_3')?.name} 처치 · 확률 1/${Math.round(1 / pet.p)}` : pet.src === 'event' ? '🎉 별빛 축제 상점' : `${SKILL[pet.src].name} 행동 · 확률 1/${Math.round(1 / pet.p)}`;
       const r = h('div', 'row' + (own ? '' : ' lock') + (on ? ' on' : ''), `<div class="ic">${own ? pet.icon : '❔'}</div><div class="info"><div class="nm">${own ? pet.name : '???'}</div><div class="mut">${src}</div><div class="mut sp">★ ${spText(pet.fx)}</div></div>${own ? `<button class="btn sm fv">${s.favPet.includes(pet.id) ? '⭐' : '☆'}</button>` : ''}<button class="btn on1"${own ? '' : ' disabled'}>${on ? '보내기' : '데리고 다니기'}</button>`);
       $('.on1', r).addEventListener('click', () => { s.pet = on ? null : pet.id; g.dirty(); });
       $('.fv', r)?.addEventListener('click', () => { const f = s.favPet.includes(pet.id); s.favPet = f ? s.favPet.filter((x) => x !== pet.id) : [...s.favPet, pet.id]; });
