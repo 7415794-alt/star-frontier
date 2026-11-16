@@ -1,7 +1,7 @@
 // 별무리 개척기 — 화면
 import {
   VERSION, SKILLS, SKILL, ITEMS, SLOTS, SLOT_IDS, STYLES, ZONES, ACTIONS, PRAYERS, PETS, TIERS, STATS, STAT_IDS, SPELLS, CAPS,
-  XP_TABLE, MAX_LVL, SPECIAL_NAMES, SHOP, FLAT_SP, HUNT_NAMES, huntTier, USE_NAMES, TOOLS,
+  XP_TABLE, MAX_LVL, SPECIAL_NAMES, SHOP, FLAT_SP, HUNT_NAMES, HUNT_TIERS, HUNT_PER, huntTier, USE_NAMES, TOOLS,
 } from './data.js';
 import { exportSave, importSave, C } from './game.js';
 import { tabCodex } from './codex.js';
@@ -208,7 +208,7 @@ export class UI {
       p.appendChild(sp);
     }
 
-    const zs = h('div', 'card', `<div style="display:flex;gap:6px;align-items:center"><button class="btn sm zp">◀</button><select class="zsel" style="flex:1;min-width:0">${ZONES.map((z, i) => `<option value="${i}"${i === this.zone ? ' selected' : ''}>${z.n} · Lv ${z.lvl}+ · ${TIERS[z.t].n}</option>`).join('')}</select><button class="btn sm zn">▶</button></div><div class="mut">지역 ${this.zone + 1} / ${ZONES.length}</div>`);
+    const zs = h('div', 'card', `<div style="display:flex;gap:6px;align-items:center"><button class="btn sm zp">◀</button><select class="zsel" style="flex:1;min-width:0">${ZONES.map((z, i) => `<option value="${i}"${i === this.zone ? ' selected' : ''}>${z.n} · Lv ${z.lvl}+ · ${TIERS[z.t].n}${((n) => (n ? ` · 🏹${n}/${z.mons.length * HUNT_TIERS.length}` : ''))(z.mons.reduce((a, m) => a + huntTier(s.kills?.[m.id]), 0))}</option>`).join('')}</select><button class="btn sm zn">▶</button></div><div class="mut">지역 ${this.zone + 1} / ${ZONES.length}</div>`);
     $('.zsel', zs).addEventListener('change', (e) => { this.zone = +e.target.value; });
     $('.zp', zs).addEventListener('click', () => { this.zone = Math.max(0, this.zone - 1); });
     $('.zn', zs).addEventListener('click', () => { this.zone = Math.min(ZONES.length - 1, this.zone + 1); });
@@ -222,6 +222,7 @@ export class UI {
         <div class="ic">${m.icon}</div>
         <div class="info"><div class="nm">${m.boss ? '👑 ' : ''}${m.name} <span class="mut">Lv ${m.lvl} · 체력 ${fmt(m.hp)} · 🔍 전리품${huntTier(s.kills?.[m.id]) ? ` · 🏹${huntTier(s.kills?.[m.id])}` : ''}</span></div>
         <div class="mut">${STYLES[m.style].icon}${STYLES[m.style].name} · 공격 ${m.atk} · 힘 ${m.str} · 방어 ${v.mdef} · ${m.interval}초 · 약점 ${STYLES[m.weak].icon}</div>
+        <div class="mut sp">${this.huntLine(m)}</div>
         <div class="mut">내 피해 ${v.min}~${v.mh} · 처치 약 ${time(v.ttk)} · 적 명중 ${pct(v.mHit)} · 최대 ${v.mMax}${danger ? ' <span style="color:#f87171">⚠ 위험</span>' : ''} · 처치 ${fmt(s.kills?.[m.id] || 0)}</div></div>
         <button class="btn ${on ? '' : 'pri'}">${on ? '■' : '⚔ 싸우기'}</button>`);
       $('button', r).addEventListener('click', (e) => { e.stopPropagation(); if (on) g.stop(); else g.startCombat(m.id); });
@@ -231,6 +232,13 @@ export class UI {
     }
     this.recCard(p, zn);
     p.appendChild(h('div', 'card mut', '공식 · 최대 피해: 근접 (공격+힘)×0.85, 원거리 원거리×0.85, 마법 마법×0.70×주문 배율 → 몬스터 방어×0.3만큼 깎임 · 내 공격은 항상 맞고 최소~최대 사이 피해 · 적 명중률 = 적 공격 ÷ (적 공격 + 내 방어×0.43) · 맞으면 적 힘×0.42~0.58 피해를 방어 효율만큼 줄이고 피해 감소 %를 한 번 더 뺌 · 약점 방식으로 때리면 적 방어 절반'));
+  }
+
+  // 몬스터 도감(사냥꾼 숙련)으로 이 몬스터에게 받고 있는 보너스
+  huntLine(m) {
+    const k = this.g.s.kills?.[m.id] || 0, t = huntTier(k), next = HUNT_TIERS[t];
+    const fx = t ? `드롭 +${pct(t * HUNT_PER.drop, 0)} · 피해 +${pct(t * HUNT_PER.dmg, 0)} · 방어 +${pct(t * HUNT_PER.def, 1)}` : '보너스 없음';
+    return `🏹 ${HUNT_NAMES[t]} (${t}/${HUNT_TIERS.length}) · ${fx}${next ? ` · 다음 단계까지 ${fmt(next - k)}마리` : ' · 최고 단계'}`;
   }
 
   // 지금 어떤 스탯을 올리는 게 좋은지: 실제 전투(분당 처치) / 전투력 두 기준
