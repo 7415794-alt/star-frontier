@@ -5,6 +5,7 @@ import {
 } from './data.js';
 import { exportSave, importSave, C } from './game.js';
 import { tabCodex } from './codex.js';
+import { tabTown } from './town.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -52,7 +53,7 @@ export class UI {
   // 바뀐 게 있을 때만 패널을 다시 그림 (스크롤 유지)
   signature() {
     const s = this.g.s;
-    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.favPrayer, s.favPet, s.sfx, s.cb, Object.values(s.effects || {}).map((e) => e.id), s.tools, s.life, s.autoPot, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0]);
+    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.favPrayer, s.favPet, s.sfx, s.cb, Object.values(s.effects || {}).map((e) => e.id), s.tools, s.life, s.autoPot, s.quests, s.talents, s.museum, s.trader, s.candy, this.town, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0]);
   }
   render(force = false) {
     const sig = this.signature();
@@ -63,7 +64,7 @@ export class UI {
     p.innerHTML = '';
     document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === this.tab));
     document.body.classList.toggle('cb', !!this.g.s.cb);
-    ({ combat: this.tabCombat, skills: this.tabSkills, gear: this.tabGear, bank: this.tabBank, codex: (el) => tabCodex(this, el), more: this.tabMore })[this.tab].call(this, p);
+    ({ combat: this.tabCombat, skills: this.tabSkills, gear: this.tabGear, bank: this.tabBank, codex: (el) => tabCodex(this, el), town: (el) => tabTown(this, el), more: this.tabMore })[this.tab].call(this, p);
     if (!force) p.scrollTop = top;
   }
 
@@ -439,8 +440,8 @@ export class UI {
     for (const pet of [...PETS].sort((a, b) => s.favPet.includes(b.id) - s.favPet.includes(a.id))) {
       const own = s.pets.includes(pet.id);
       const on = s.pet === pet.id;
-      const src = pet.src.startsWith('boss:') ? `${ZONES[+pet.src.slice(5)].mons[3].name} 처치` : `${SKILL[pet.src].name} 행동`;
-      const r = h('div', 'row' + (own ? '' : ' lock') + (on ? ' on' : ''), `<div class="ic">${own ? pet.icon : '❔'}</div><div class="info"><div class="nm">${own ? pet.name : '???'}</div><div class="mut">${src} · 확률 1/${Math.round(1 / pet.p)}</div><div class="mut sp">★ ${spText(pet.fx)}</div></div>${own ? `<button class="btn sm fv">${s.favPet.includes(pet.id) ? '⭐' : '☆'}</button>` : ''}<button class="btn on1"${own ? '' : ' disabled'}>${on ? '보내기' : '데리고 다니기'}</button>`);
+      const src = pet.src.startsWith('boss:') ? `${ZONES[+pet.src.slice(5)].mons[3].name} 처치 · 확률 1/${Math.round(1 / pet.p)}` : pet.src === 'event' ? '🎉 별빛 축제 상점' : `${SKILL[pet.src].name} 행동 · 확률 1/${Math.round(1 / pet.p)}`;
+      const r = h('div', 'row' + (own ? '' : ' lock') + (on ? ' on' : ''), `<div class="ic">${own ? pet.icon : '❔'}</div><div class="info"><div class="nm">${own ? pet.name : '???'}</div><div class="mut">${src}</div><div class="mut sp">★ ${spText(pet.fx)}</div></div>${own ? `<button class="btn sm fv">${s.favPet.includes(pet.id) ? '⭐' : '☆'}</button>` : ''}<button class="btn on1"${own ? '' : ' disabled'}>${on ? '보내기' : '데리고 다니기'}</button>`);
       $('.on1', r).addEventListener('click', () => { s.pet = on ? null : pet.id; g.dirty(); });
       $('.fv', r)?.addEventListener('click', () => { const f = s.favPet.includes(pet.id); s.favPet = f ? s.favPet.filter((x) => x !== pet.id) : [...s.favPet, pet.id]; });
       p.appendChild(r);

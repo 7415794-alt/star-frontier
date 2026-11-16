@@ -390,6 +390,7 @@ export const PETS = [
   { id: 'griffin', name: '꼬마 그리폰', icon: '🦅', src: 'boss:5', p: 1 / 280, fx: { gspd: 0.1, pspd: 0.1 } },
   { id: 'drake', name: '새끼 용', icon: '🐉', src: 'boss:6', p: 1 / 300, fx: { strPct: 0.06, rngPct: 0.06, magPct: 0.06, hpTick: 15 } },
   { id: 'star', name: '별똥 정령', icon: '🌠', src: 'boss:7', p: 1 / 350, fx: { drop: 0.1, bossDmg: 0.1 } },
+  { id: 'cat', name: '축제 고양이', icon: '🐈', src: 'event', p: 0, fx: { gspd: 0.1, pspd: 0.1 } },
 ];
 export const PET = Object.fromEntries(PETS.map((p) => [p.id, p]));
 

@@ -1,10 +1,12 @@
 // 별무리 개척기 — 시작 · 게임 루프 · 자동 저장
 import { Game, newState, loadState, saveState, SAVE_KEY } from './game.js';
 import { UI } from './ui.js';
+import './town.js';
 import { ITEMS, SKILL } from './data.js';
 
 const state = loadState() || newState();
 const game = new Game(state);
+game.townInit();
 let locked = false;
 const save = () => { if (!locked) saveState(game.s); };
 const restart = (st) => {
