@@ -79,7 +79,7 @@ function festShop(t) {
     ...POTS.map((k) => ({ id: `pot_${k}${t}`, n: 3, price: 4 + t * 2, g: '🧪 물약 (3개 묶음)' })),
     { id: 'nest' + t, n: 2, price: 8 + t * 3, g: '🎁 상자 · 재료' }, { id: 'gembag' + t, n: 2, price: 8 + t * 3, g: '🎁 상자 · 재료' }, { id: 'chest' + t, n: 2, price: 8 + t * 3, g: '🎁 상자 · 재료' },
     { id: 'herb' + t, n: 10, price: 3 + t, g: '🎁 상자 · 재료' }, { id: 'gem' + t, n: 1, price: 10 + t * 3, g: '🎁 상자 · 재료' }, { id: 'food' + t, n: 20, price: 4 + t, g: '🎁 상자 · 재료' },
-    { id: 'sstone' + t, n: 1, price: 15 + t * 4, g: '🎁 상자 · 재료' }, { id: 'arrow' + t, n: 100, price: 5 + t, g: '🎁 상자 · 재료' }, { id: 'rune' + t, n: 100, price: 5 + t, g: '🎁 상자 · 재료' },
+    { id: 'sstone' + t, n: 1, price: 15 + t * 4, g: '🎁 상자 · 재료' }, 
     { id: 'whistle', n: 1, price: 150, g: '✨ 특별' }, { id: 'tome_bless', n: 1, price: 3000, g: '✨ 특별' }, { id: 'tome_undying', n: 1, price: 4500, g: '✨ 특별' }, { id: 'tome_heaven', n: 1, price: 6000, g: '✨ 특별' },
   ];
 }

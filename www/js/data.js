@@ -29,10 +29,7 @@ export const SKILLS = [
   { id: 'mine', name: '채광', icon: '⛏️', type: 'gather', desc: '광석 · 보석 채굴' },
   { id: 'fish', name: '낚시', icon: '🎣', type: 'gather', desc: '날생선' },
   { id: 'smith', name: '대장', icon: '🔨', type: 'make', desc: '주괴 · 판금 · 검 · 도끼 · 방패' },
-  { id: 'craft', name: '공예', icon: '🧵', type: 'make', desc: '활 · 석궁 · 지팡이 · 가죽 · 로브 · 장신구' },
   { id: 'cook', name: '요리', icon: '🍳', type: 'make', desc: '날생선 → 음식 (회복)' },
-  { id: 'alch', name: '연금술', icon: '⚗️', type: 'make', desc: '약초 → 물약 (스탯 · 속도 · 드롭 버프)' },
-  { id: 'ench', name: '마법 공예', icon: '🪄', type: 'make', desc: '룬 · 마력 천 · 소환석 · 펫 호루라기' },
   { id: 'steal', name: '도둑질', icon: '🎭', type: 'support', desc: '주민 · 금고 털기 (성공률 = 레벨 + 도둑질 성공률)' },
 ];
 export const SKILL = Object.fromEntries(SKILLS.map((s) => [s.id, s]));
@@ -100,7 +97,7 @@ export function rollRarity(min = 1) {
 }
 export const gearId = (base, r) => (r > 1 ? `${base}_r${r}` : base);
 export const SLOTS = {
-  weapon: { name: '무기', icon: '⚔️' }, shield: { name: '방패', icon: '🛡️' }, head: { name: '머리', icon: '⛑️' },
+  weapon: { name: '무기', icon: '⚔️' }, head: { name: '머리', icon: '⛑️' },
   body: { name: '상의', icon: '👕' }, legs: { name: '하의', icon: '👖' }, gloves: { name: '장갑', icon: '🧤' },
   boots: { name: '신발', icon: '👢' }, amulet: { name: '목걸이', icon: '📿' }, ring: { name: '반지', icon: '💍' }, cape: { name: '망토', icon: '🧣' },
 };
@@ -189,12 +186,9 @@ export const TOOLS = {
   mine: { n: '곡괭이', icon: '⛏️', mat: ['bar', 'log'], fx: '채집 속도' },
   fish: { n: '낚싯대', icon: '🎣', mat: ['log', 'hide'], fx: '채집 속도' },
   smith: { n: '대장 망치', icon: '🔨', mat: ['bar', 'log'], fx: '제작 속도' },
-  craft: { n: '공예 칼', icon: '🔪', mat: ['hide', 'log'], fx: '제작 속도' },
   cook: { n: '요리 냄비', icon: '🍲', mat: ['bar', 'log'], fx: '요리 속도' },
-  alch: { n: '연금 플라스크', icon: '🧫', mat: ['gem', 'herb'], fx: '연금 속도' },
-  ench: { n: '룬 조각칼', icon: '🪄', mat: ['cloth', 'gem'], fx: '마법 공예 속도' },
   div: { n: '성스러운 향로', icon: '🕯️', mat: ['bone', 'gem'], fx: '뼈 묻기 속도' },
-  steal: { n: '도둑 장갑', icon: '🧤', mat: ['hide', 'cloth'], fx: '도둑질 속도' },
+  steal: { n: '도둑 장갑', icon: '🧤', mat: ['hide', 'gem'], fx: '도둑질 속도' },
 };
 // 도구 업그레이드: t단계로 올리는 재료 · 골드 (도구는 종류마다 1개, 1~21단계)
 export const toolCost = (sk, t) => {
@@ -214,7 +208,7 @@ export const LIFE_GEAR = [
   { k: 'pearl', n: '진주 반지', icon: '💍', fx: (t) => ({ sxp: 0.03 + 0.01 * t }) },
 ];
 TIERS.forEach((T, t) => {
-  for (const L of LIFE_GEAR) ITEMS[`life_${L.k}${t}`] = { name: `${T.n} ${L.n}`, icon: L.icon, kind: 'life', t, fx: r4(L.fx(t)), req: ['craft', T.lvl], value: 60 * (t + 1) ** 2 };
+  for (const L of LIFE_GEAR) ITEMS[`life_${L.k}${t}`] = { name: `${T.n} ${L.n}`, icon: L.icon, kind: 'life', t, fx: r4(L.fx(t)), req: ['smith', T.lvl], value: 60 * (t + 1) ** 2 };
 });
 
 // ---------- 채집 중 희귀 발견 (열면 보상) ----------
@@ -250,25 +244,24 @@ for (const tm of TOMES) ITEMS[tm.id] = { name: tm.n, icon: '📕', kind: 'tome',
 export const GEAR = {
   sword: { slot: 'weapon', style: 'melee', name: '검', icon: '🗡️', req: 'atk', speed: 2.4, s: { atk: 1.4, str: 0.5 }, mat: { bar: 2 }, skill: 'smith' },
   axe: { slot: 'weapon', style: 'melee', name: '대도끼', icon: '🪓', req: 'str', speed: 3.0, twoHand: true, s: { atk: 0.8, str: 2.1 }, mat: { bar: 3 }, skill: 'smith' },
-  bow: { slot: 'weapon', style: 'ranged', name: '활', icon: '🏹', req: 'rng', speed: 2.2, twoHand: true, s: { rng: 2.4 }, mat: { log: 3 }, skill: 'craft' },
-  xbow: { slot: 'weapon', style: 'ranged', name: '석궁', icon: '🎯', req: 'rng', speed: 2.8, twoHand: true, s: { rng: 3.2 }, mat: { log: 2, bar: 1 }, skill: 'craft' },
-  staff: { slot: 'weapon', style: 'magic', name: '지팡이', icon: '🔱', req: 'mag', speed: 2.6, twoHand: true, s: { mag: 3.1, def: 0.3 }, mat: { log: 3 }, skill: 'craft' },
-  wand: { slot: 'weapon', style: 'magic', name: '완드', icon: '🥢', req: 'mag', speed: 2.4, s: { mag: 2.0 }, mat: { log: 1, cloth: 1 }, skill: 'craft' },
-  shield: { slot: 'shield', name: '방패', icon: '🛡️', req: 'def', s: { def: 1.1 }, p: { dr: 0.004 }, mat: { bar: 3 }, skill: 'smith' },
+  bow: { slot: 'weapon', style: 'ranged', name: '활', icon: '🏹', req: 'rng', speed: 2.2, twoHand: true, s: { rng: 2.57 }, mat: { log: 3 }, skill: 'smith' },
+  xbow: { slot: 'weapon', style: 'ranged', name: '석궁', icon: '🎯', req: 'rng', speed: 2.8, twoHand: true, s: { rng: 3.42 }, mat: { log: 2, bar: 1 }, skill: 'smith' },
+  staff: { slot: 'weapon', style: 'magic', name: '지팡이', icon: '🔱', req: 'mag', speed: 2.6, twoHand: true, s: { mag: 3.32, def: 0.3 }, mat: { log: 3 }, skill: 'smith' },
+  wand: { slot: 'weapon', style: 'magic', name: '완드', icon: '🥢', req: 'mag', speed: 2.4, s: { mag: 2.14 }, mat: { log: 1, cloth: 1 }, skill: 'smith' },
   helm: { slot: 'head', name: '투구', icon: '⛑️', req: 'def', s: { def: 0.8, str: 0.1 }, mat: { bar: 2 }, skill: 'smith' },
   plate: { slot: 'body', name: '판금 갑옷', icon: '🥋', req: 'def', s: { def: 1.6 }, p: { dr: 0.005 }, mat: { bar: 5 }, skill: 'smith' },
   plegs: { slot: 'legs', name: '판금 각반', icon: '👖', req: 'def', s: { def: 1.2 }, mat: { bar: 3 }, skill: 'smith' },
-  coif: { slot: 'head', name: '가죽 두건', icon: '🎩', req: 'rng', s: { def: 0.5, rng: 0.35 }, mat: { hide: 1 }, skill: 'craft' },
-  hbody: { slot: 'body', name: '가죽 갑옷', icon: '🦺', req: 'rng', s: { def: 1.0, rng: 0.55 }, p: { dr: 0.002 }, mat: { hide: 3 }, skill: 'craft' },
-  chaps: { slot: 'legs', name: '가죽 바지', icon: '👖', req: 'rng', s: { def: 0.8, rng: 0.45 }, mat: { hide: 2 }, skill: 'craft' },
-  hat: { slot: 'head', name: '마법 모자', icon: '🧙', req: 'mag', s: { def: 0.3, mag: 0.45 }, mat: { cloth: 1 }, skill: 'craft' },
-  robe: { slot: 'body', name: '로브 상의', icon: '👘', req: 'mag', s: { def: 0.6, mag: 0.75 }, p: { ls: 0.002 }, mat: { cloth: 3 }, skill: 'craft' },
-  skirt: { slot: 'legs', name: '로브 하의', icon: '👗', req: 'mag', s: { def: 0.45, mag: 0.55 }, mat: { cloth: 2 }, skill: 'craft' },
-  gloves: { slot: 'gloves', name: '장갑', icon: '🧤', req: 'def', s: { atk: 0.25, rng: 0.3, mag: 0.35, def: 0.3 }, mat: { hide: 1 }, skill: 'craft' },
+  coif: { slot: 'head', name: '가죽 두건', icon: '🎩', req: 'rng', s: { def: 0.5, rng: 0.35 }, mat: { hide: 1 }, skill: 'smith' },
+  hbody: { slot: 'body', name: '가죽 갑옷', icon: '🦺', req: 'rng', s: { def: 1.0, rng: 0.55 }, p: { dr: 0.002 }, mat: { hide: 3 }, skill: 'smith' },
+  chaps: { slot: 'legs', name: '가죽 바지', icon: '👖', req: 'rng', s: { def: 0.8, rng: 0.45 }, mat: { hide: 2 }, skill: 'smith' },
+  hat: { slot: 'head', name: '마법 모자', icon: '🧙', req: 'mag', s: { def: 0.3, mag: 0.45 }, mat: { cloth: 1 }, skill: 'smith' },
+  robe: { slot: 'body', name: '로브 상의', icon: '👘', req: 'mag', s: { def: 0.6, mag: 0.75 }, p: { ls: 0.002 }, mat: { cloth: 3 }, skill: 'smith' },
+  skirt: { slot: 'legs', name: '로브 하의', icon: '👗', req: 'mag', s: { def: 0.45, mag: 0.55 }, mat: { cloth: 2 }, skill: 'smith' },
+  gloves: { slot: 'gloves', name: '장갑', icon: '🧤', req: 'def', s: { atk: 0.25, rng: 0.3, mag: 0.35, def: 0.3 }, mat: { hide: 1 }, skill: 'smith' },
   boots: { slot: 'boots', name: '장화', icon: '👢', req: 'def', s: { def: 0.5, str: 0.15 }, mat: { bar: 1 }, skill: 'smith' },
-  amulet: { slot: 'amulet', name: '목걸이', icon: '📿', req: 'def', s: { atk: 0.35, str: 0.3, rng: 0.45, mag: 0.5 }, p: { ls: 0.004 }, mat: { bar: 1, gem: 1 }, skill: 'craft' },
-  ring: { slot: 'ring', name: '반지', icon: '💍', req: 'def', s: { str: 0.3, rng: 0.4, mag: 0.45 }, p: { ls: 0.003, dr: 0.002 }, mat: { bar: 1, gem: 1 }, skill: 'craft' },
-  cape: { slot: 'cape', name: '망토', icon: '🧣', req: 'def', s: { def: 0.5, str: 0.15, rng: 0.2, mag: 0.2 }, mat: { cloth: 2, hide: 2 }, skill: 'craft' },
+  amulet: { slot: 'amulet', name: '목걸이', icon: '📿', req: 'def', s: { atk: 0.35, str: 0.3, rng: 0.45, mag: 0.5 }, p: { ls: 0.004 }, mat: { bar: 1, gem: 1 }, skill: 'smith' },
+  ring: { slot: 'ring', name: '반지', icon: '💍', req: 'def', s: { str: 0.3, rng: 0.4, mag: 0.45 }, p: { ls: 0.003, dr: 0.002 }, mat: { bar: 1, gem: 1 }, skill: 'smith' },
+  cape: { slot: 'cape', name: '망토', icon: '🧣', req: 'def', s: { def: 0.5, str: 0.15, rng: 0.2, mag: 0.2 }, mat: { cloth: 2, hide: 2 }, skill: 'smith' },
 };
 function gearStats(type, t) {
   const g = GEAR[type];
@@ -310,7 +303,7 @@ const ZONE_DEFS = [
 const ROT = ['melee', 'ranged', 'magic'];
 const WEAK = { melee: 'magic', ranged: 'melee', magic: 'ranged' };
 const STYLE_GEAR = {
-  melee: ['sword', 'axe', 'shield', 'helm', 'plate', 'plegs', 'boots'],
+  melee: ['sword', 'axe', 'helm', 'plate', 'plegs', 'boots'],
   ranged: ['bow', 'xbow', 'coif', 'hbody', 'chaps', 'gloves', 'boots'],
   magic: ['staff', 'wand', 'hat', 'robe', 'skirt', 'gloves', 'cape'],
 };
@@ -346,7 +339,7 @@ function lootTable(style, t, i, boss) {
 // 몬스터 공격 · 힘: 같은 레벨 · 같은 단계 장비(희귀 기준) 플레이어를 기준으로 맞춤
 //  - 같은 레벨: 명중 약 44% · 방어로 피해 약 50% 감소 · 흡혈 · 재생을 빼고도 초당 체력 약 1.2%씩 깎임 (음식 필요)
 //  - 20레벨 아래: 거의 피해 없음 / 10~15레벨 위: 음식 없이는 금방 쓰러짐
-export const refDef = (L) => (L <= 100 ? 40 + 4.14 * L ** 1.35 : 2115 * (L / 100) ** 1.9); // 그 레벨 플레이어의 보통 방어
+export const refDef = (L) => 0.816 * (L <= 100 ? 40 + 4.14 * L ** 1.35 : 2115 * (L / 100) ** 1.9); // 그 레벨 플레이어의 보통 방어
 const refHeal = (L) => (L <= 100 ? 0.028 * L : 2.8 * (L / 100) ** 1.65); // 그 레벨 플레이어의 보통 흡혈 · 재생 (초당 체력 %)
 const refNet = (L) => Math.min(1.2, 0.5 + 0.025 * L); // 회복을 넘어서 깎이는 양 (초당 체력 %), 초반은 순하게
 export const MON_HIT = 0.8;
@@ -428,20 +421,16 @@ TIERS.forEach((T, t) => {
   // 연금술: 전투 물약 = 약초 2 + 뼈 1, 기타 물약 = 약초 3 + 주괴 1
   for (const P of POTION_TYPES) {
     const combat = ['atk', 'str', 'def', 'rng', 'mag'].includes(P.k);
-    addAct('alch', { id: `pot_${P.k}${t}`, group: T.n + ' 물약', name: `${T.n} ${P.n} 물약`, icon: P.icon, lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * (combat ? 1.1 : 1.4)), in: combat ? { ['herb' + t]: 2, ['bone' + t]: 1 } : { ['herb' + t]: 3, ['bar' + t]: 1 }, out: { [`pot_${P.k}${t}`]: 1 } });
   }
   // 도구 (대장) · 생활 장신구 (공예)
-  for (const L of LIFE_GEAR) addAct('craft', { id: `life_${L.k}${t}`, group: '생활 장신구', craft: true, name: `${T.n} ${L.n}`, icon: L.icon, lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 3), in: { ['gem' + t]: 1, ['bar' + t]: 1 }, out: { [`life_${L.k}${t}`]: 1 } });
-  addAct('craft', { id: 'arrow' + t, group: '화살 제작', name: `${T.n} 화살 x40`, icon: '➶', lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 1.2), in: { ['log' + t]: 1, ['bar' + t]: 1 }, out: { ['arrow' + t]: 40 } });
-  addAct('ench', { id: 'rune' + t, group: '룬 새기기', name: `${T.n} 룬 x40`, icon: '🔹', lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 1.2), in: { ['cloth' + t]: 1, ['ore' + t]: 1 }, out: { ['rune' + t]: 40 } });
-  addAct('ench', { id: 'weave' + t, group: '마력 천 짜기', name: `${T.n} 마력 천`, icon: '🟪', lvl: T.lvl, time: 2.6, xp: Math.round(GATHER_XP[t] * 0.8), in: { ['hide' + t]: 1, ['herb' + t]: 1 }, out: { ['cloth' + t]: 1 } });
-  addAct('ench', { id: 'sstone' + t, group: '소환석 (스킬 보스 도전)', name: `${T.n} 소환석`, icon: '🪨', lvl: T.lvl, time: 4, xp: Math.round(GATHER_XP[t] * 3), in: { ['gem' + t]: 1, ['bar' + t]: 2, ['herb' + t]: 2 }, out: { ['sstone' + t]: 1 } });
+  for (const L of LIFE_GEAR) addAct('smith', { id: `life_${L.k}${t}`, group: '생활 장신구', craft: true, name: `${T.n} ${L.n}`, icon: L.icon, lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 3), in: { ['gem' + t]: 1, ['bar' + t]: 1 }, out: { [`life_${L.k}${t}`]: 1 } });
+  addAct('smith', { id: 'sstone' + t, group: '소환석 (스킬 보스 도전)', name: `${T.n} 소환석`, icon: '🪨', lvl: T.lvl, time: 4, xp: Math.round(GATHER_XP[t] * 3), in: { ['gem' + t]: 1, ['bar' + t]: 2, ['herb' + t]: 2 }, out: { ['sstone' + t]: 1 } });
   addAct('steal', { id: 'steal' + t, name: STEAL[t][0], icon: STEAL[t][1], lvl: T.lvl, time: 2.5 + t * 0.25, xp: Math.round(GATHER_XP[t] * 1.15), out: {}, thief: true,
     coins: [8, 20].map((k) => k * (t + 1) ** 2), loot: [['herb' + t, 0.2, 1, 2], ['food' + t, 0.1, 1, 1], ['gem' + t, 0.02, 1, 1], ['pot_luck' + t, 0.01, 1, 1], ['gembag' + t, 1 / 150, 1, 1]] });
   addAct('cook', { id: 'cook' + t, name: FISH[t] + ' 굽기', icon: '🍖', lvl: T.lvl, time: 2.4, xp: Math.round(GATHER_XP[t] * 0.9), in: { ['raw' + t]: 1 }, out: { ['food' + t]: 1 }, burn: true });
   addAct('smith', { id: 'bar' + t, group: '주괴 제련', name: T.n + ' 주괴', icon: '🧱', lvl: T.lvl, time: 2.5, xp: Math.round(GATHER_XP[t] * 0.7), in: { ['ore' + t]: 1 }, out: { ['bar' + t]: 1 } });
 });
-addAct('ench', { id: 'whistle', group: '펫 호루라기', name: '펫 호루라기', icon: '📯', lvl: 30, time: 5, xp: 400, in: { gem3: 2, bone3: 3 }, out: { whistle: 1 } });
+addAct('smith', { id: 'whistle', group: '펫 호루라기', name: '펫 호루라기', icon: '📯', lvl: 30, time: 5, xp: 400, in: { gem3: 2, bone3: 3 }, out: { whistle: 1 } });
 for (const [type, g] of Object.entries(GEAR)) {
   TIERS.forEach((T, t) => {
     const inp = Object.fromEntries(Object.entries(g.mat).map(([m, n]) => [m + t, n]));
@@ -491,7 +480,7 @@ export const PETS = [
   { id: 'mole', name: '꼬마 두더지', icon: '🦔', src: 'mine', p: 1 / 4000, fx: { gspd: 0.05, sxp: 0.05 } },
   { id: 'otter', name: '장난꾸러기 수달', icon: '🦦', src: 'fish', p: 1 / 4000, fx: { heal: 0.15, gspd: 0.05 } },
   { id: 'salamander', name: '불씨 도롱뇽', icon: '🦎', src: 'smith', p: 1 / 3000, fx: { cspd: 0.1 } },
-  { id: 'moth', name: '비단 나방', icon: '🦋', src: 'craft', p: 1 / 3000, fx: { cspd: 0.05, pspd: 0.05 } },
+  { id: 'moth', name: '비단 나방', icon: '🦋', src: 'smith', p: 1 / 3000, fx: { cspd: 0.05, pspd: 0.05 } },
   { id: 'chick', name: '노릇 병아리', icon: '🐥', src: 'cook', p: 1 / 3000, fx: { pspd: 0.1, burn: 0.5 } },
   { id: 'boar', name: '아기 멧돼지', icon: '🐗', src: 'boss:0', p: 1 / 150, fx: { strPct: 0.05, rngPct: 0.05, magPct: 0.05 } },
   { id: 'sprout', name: '새싹 수호자', icon: '🌱', src: 'boss:1', p: 1 / 180, fx: { drop: 0.1 } },
@@ -503,7 +492,7 @@ export const PETS = [
   { id: 'star', name: '별똥 정령', icon: '🌠', src: 'boss:7', p: 1 / 350, fx: { drop: 0.1, bossDmg: 0.1 } },
   { id: 'seraph', name: '아기 천사', icon: '👼', src: 'boss:8', p: 1 / 400, fx: { atkPct: 0.06, strPct: 0.06, rngPct: 0.06, magPct: 0.06, defPct: 0.06 } },
   { id: 'raccoon', name: '복면 너구리', icon: '🦝', src: 'steal', p: 1 / 3000, fx: { thief: 0.05, drop: 0.03 } },
-  { id: 'wisp', name: '마력 반딧불', icon: '✨', src: 'ench', p: 1 / 3000, fx: { pspd: 0.08, mxp: 0.05 } },
+  { id: 'wisp', name: '마력 반딧불', icon: '✨', src: 'cook', p: 1 / 3000, fx: { pspd: 0.08, mxp: 0.05 } },
   { id: 'treant', name: '꼬마 나무정령', icon: '🌳', src: 'sboss:wood', srcText: '고목 정령왕 (스킬 보스) · 확률 1/40', p: 1 / 40, fx: { gspd: 0.08, gxp: 0.05 } },
   { id: 'crystal', name: '수정 꼬마', icon: '💠', src: 'sboss:mine', srcText: '수정 거인 (스킬 보스) · 확률 1/40', p: 1 / 40, fx: { gspd: 0.06, drop: 0.04 } },
   { id: 'squid', name: '꼬마 오징어', icon: '🦑', src: 'sboss:fish', srcText: '심해의 군주 (스킬 보스) · 확률 1/40', p: 1 / 40, fx: { heal: 0.2, hpTick: 8 } },
@@ -546,5 +535,5 @@ export const DEATH_TIME = 5;
 export const OFFLINE_CAP = 12 * 3600;
 export const SHOP = [
   { id: 'bread', price: 10 },
-  ...['sword', 'bow', 'wand', 'shield', 'helm', 'plate', 'plegs', 'coif', 'hbody', 'chaps', 'hat', 'robe', 'skirt'].flatMap((ty) => [0, 1].map((t) => ({ id: ty + t, price: ITEMS[ty + t].value * 4 }))),
+  ...['sword', 'bow', 'wand', 'helm', 'plate', 'plegs', 'coif', 'hbody', 'chaps', 'hat', 'robe', 'skirt'].flatMap((ty) => [0, 1].map((t) => ({ id: ty + t, price: ITEMS[ty + t].value * 4 }))),
 ];

@@ -318,6 +318,7 @@ export class UI {
       p.appendChild(tc);
       if (this.skillSel === 'tools') { this.toolShop(p); return; }
     }
+    if (!SKILL[this.skillSel] || (!ACTIONS[this.skillSel] && this.skillSel !== 'div')) this.skillSel = 'wood';
     const k = SKILL[this.skillSel];
     p.appendChild(h('div', 'h', `${k.icon} ${k.name} Lv ${g.lvl(k.id)} <span class="mut">${this.xpText(k.id)}</span>`));
     const goal = s.goals?.[k.id];
@@ -333,6 +334,7 @@ export class UI {
       p.appendChild(tc);
     }
     if (k.type === 'make' || k.type === 'gather') this.effCard(p);
+    this.bestActCard?.(p, k);
     let group = '';
     const hiL = g.lvl(k.id) + 15;
     const hidden = ACTIONS[k.id].filter((a) => a.lvl > hiL).length;
@@ -347,8 +349,9 @@ export class UI {
       const r = h('div', 'row' + (lock ? ' lock' : '') + (on ? ' on' : ''), `<div class="ic">${a.icon}</div>
         <div class="info"><div class="nm">${a.name}${this.qMark?.(Object.keys(a.out || {})) || ''} <span class="mut">Lv ${a.lvl}</span></div><div class="mut">${io}</div>${gearInfo}
         <div class="mut">XP ${g.actionXp(k.id, a).toFixed(0)} · ${g.actionTime(k.id, a).toFixed(1)}초${burn ? ` · 태울 확률 ${pct(burn)}` : ''}</div></div>
-        <button class="btn ${on ? '' : 'pri'}"${lock ? ' disabled' : ''}>${lock ? '🔒' : on ? '■' : '▶'}</button>`);
-      $('button', r).addEventListener('click', () => { if (on) g.stop(); else g.startSkill(k.id, a.id); });
+        ${!lock && a.in && !g.hasInputs(a) && g.canFill?.(a.in) ? '<button class="btn sm dcp">🔽 분해</button>' : ''}<button class="btn go ${on ? '' : 'pri'}"${lock ? ' disabled' : ''}>${lock ? '🔒' : on ? '■' : '▶'}</button>`);
+      $('.go', r).addEventListener('click', () => { if (on) g.stop(); else g.startSkill(k.id, a.id); });
+      $('.dcp', r)?.addEventListener('click', () => g.fillFor(a.in));
       p.appendChild(r);
     }
     if (hidden) p.appendChild(h('div', 'mut', `더 높은 행동 ${hidden}개는 레벨이 오르면 보입니다`));

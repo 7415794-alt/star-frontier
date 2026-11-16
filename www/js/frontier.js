@@ -68,6 +68,8 @@ P.townInit = function () {
 
 // 탄약: 가진 것 중 가장 좋은 것 (요구 레벨 충족) 자동 사용
 P.ammoId = function (style = this.style()) {
+  return null; // 화살 · 룬 없음 (원거리 · 마법은 탄약 없이 싸움)
+  // eslint-disable-next-line no-unreachable
   if (this.s.ammoOn === false) return null;
   const pre = style === 'ranged' ? 'arrow' : style === 'magic' ? 'rune' : null;
   if (!pre) return null;
@@ -356,6 +358,8 @@ U.sigX = function () {
   return [s.ammoOn, s.tomes, s.kfx, s.kfxOn, (s.whistle || 0) > 0, s.wb?.tk, s.cele, s.sbWins, this.g.ammoId()];
 };
 U.ammoCard = function (p) {
+  return; // 탄약 없음
+  // eslint-disable-next-line no-unreachable
   const g = this.g, s = g.s, st = g.style();
   if (st === 'melee') return;
   const pre = st === 'ranged' ? 'arrow' : 'rune';
@@ -551,11 +555,10 @@ P.bestLoadout = function (style) {
   const eq = { ...eq0 };
   let bw = null, bp = -1;
   try {
-    for (const w of weapons) { const e = { ...eq, weapon: w }; if (ITEMS[w].twoHand) delete e.shield; const pw = ev(e); if (pw > bp) { bp = pw; bw = w; } }
+    for (const w of weapons) { const e = { ...eq, weapon: w }; const pw = ev(e); if (pw > bp) { bp = pw; bw = w; } }
     eq.weapon = bw;
-    if (ITEMS[bw].twoHand) delete eq.shield;
     for (const sl of SLOT_IDS) {
-      if (sl === 'weapon' || (sl === 'shield' && ITEMS[bw].twoHand)) continue;
+      if (sl === 'weapon') continue;
       let cur = ev(eq), pk = eq[sl];
       for (const id of pool[sl] || []) { const pw = ev({ ...eq, [sl]: id }); if (pw > cur) { cur = pw; pk = id; } }
       if (pk) eq[sl] = pk;
@@ -1067,3 +1070,215 @@ U.styleCard = function (p) {
 };
 const _sigN = U.sigX;
 U.sigX = function () { return [..._sigN.call(this), this.g.s.numDeal, this.g.s.numTake]; };
+
+// ====================== 전투 방식 선택 · 최고 행동 자동 · 분해 ======================
+const STYLE_IDS = ['melee', 'ranged', 'magic'];
+// 예전 저장 정리: 화살 · 룬은 판매 가격만큼 골드로
+const _townInitX = P.townInit;
+P.townInit = function () {
+  _townInitX.call(this);
+  const s = this.s;
+  if (s.cleanV === 3) return;
+  let c = 0;
+  for (const [id, n] of Object.entries(s.bank)) if (ITEMS[id]?.kind === 'ammo') { c += (ITEMS[id].value || 1) * n; delete s.bank[id]; }
+  s.coins += c;
+  if (s.autoAct == null) s.autoAct = true;
+  s.cleanV = 3;
+};
+
+// ---- 어떤 전투 방식에서도 지금 최선보다 약한지 (그 방식의 최적 장비를 기준으로) ----
+P.weakForAll = function (id) {
+  const it = ITEMS[id];
+  if (!it || it.kind !== 'gear') return false;
+  const lo = this.loadoutPowers(), s = this.s, eq0 = s.equip;
+  try {
+    for (const st of STYLE_IDS) {
+      const L = lo[st];
+      if (!L) continue;
+      if (it.slot === 'weapon' && it.style !== st) continue;
+      if (Object.values(L.eq).includes(id)) return false; // 그 방식의 최적 장비
+      s.equip = { ...L.eq }; this.dirty();
+      const base = this.powerRaw();
+      s.equip = { ...L.eq, [it.slot]: id }; this.dirty();
+      if (this.powerRaw() > base) return false;
+    }
+    return true;
+  } finally { s.equip = eq0; this.dirty(); }
+};
+// 판매: 유물까지 올려도 모든 방식에서 약한 장비만 · 기증: 지금 그대로 모든 방식에서 약한 장비만
+P.uselessGear = function () {
+  const list = [];
+  for (const id of Object.keys(this.s.bank)) {
+    const it = ITEMS[id];
+    if (it?.kind !== 'gear') continue;
+    const top = gearId(it.base, 8);
+    if (ITEMS[top] && this.weakForAll(top) && this.weakForAll(id)) list.push(id);
+  }
+  return list;
+};
+const _donatable = P.donatable;
+P.donatable = function () { return _donatable.call(this).filter((id) => this.weakForAll(id)); };
+// weakForAll 결과 기억 (같은 상태 · 같은 가방이면 다시 계산 안 함)
+const _wfa = P.weakForAll;
+P.weakForAll = function (id) {
+  const k = this.stateKey() + '|' + Object.keys(this.s.bank).filter((x) => ITEMS[x]?.kind === 'gear').join(',');
+  if (this._wfaKey !== k) { this._wfaKey = k; this._wfa = new Map(); }
+  if (!this._wfa.has(id)) this._wfa.set(id, _wfa.call(this, id));
+  return this._wfa.get(id);
+};
+
+// ---- 전투 방식 선택: 고르면 그 방식의 최적 장비로 바꾸고, 이후에도 계속 최적으로 유지 ----
+P.chooseStyle = function (st) {
+  this.s.cstyle = st;
+  this.applyLoadout(st);
+};
+const _autoBest = P.autoBest;
+P.autoBest = function () {
+  const s = this.s;
+  if (!s.cstyle) return _autoBest.call(this);
+  if (s.fight) return;
+  const L = this.loadoutPowers()[s.cstyle];
+  if (!L) return;
+  const same = SLOT_IDS.every((sl) => (L.eq[sl] || null) === (s.equip[sl] || null));
+  if (same) return;
+  if (this.style() === s.cstyle && L.power <= this.powerRaw() * 1.001) return;
+  let n = 0;
+  if (L.eq.weapon !== s.equip.weapon) { this.equip(L.eq.weapon); n++; }
+  for (const sl of SLOT_IDS) if (sl !== 'weapon' && L.eq[sl] && L.eq[sl] !== s.equip[sl]) { this.equip(L.eq[sl]); n++; }
+  if (n) this.toast(`🔄 ${STYLES[s.cstyle].name} 최적 장비로 교체 (${n}개) · 전투력 ${fmt(this.power())}`, 'info');
+};
+U.styleCard = function (p) {
+  const g = this.g, s = g.s, cur = s.cstyle || g.style(), lo = g.loadoutPowers();
+  const c = h('div', 'seg');
+  for (const st of STYLE_IDS) {
+    const L = lo[st];
+    const b = h('button', st === cur ? 'on' : '', `${STYLES[st].icon} ${STYLES[st].name}<br><small>${L ? `전투력 ${fmt(L.power)}` : '무기 없음'}</small>`);
+    if (!L) b.disabled = true;
+    b.addEventListener('click', () => g.chooseStyle(st));
+    c.appendChild(b);
+  }
+  p.appendChild(c);
+  p.appendChild(h('div', 'mut', '전투 방식을 고르면 그 방식의 가장 강한 장비로 바뀌고, 더 좋은 장비가 생기면 계속 자동 교체됩니다 · 다른 방식의 최적 장비도 판매 · 기증하지 않고 남겨 둡니다'));
+};
+
+// ---- 모든 스킬: 할 수 있는 가장 높은 레벨 행동을 자동으로 ----
+const SPECIAL_ACT = /^(sstone|whistle|life_)/;
+P.bestAct = function (skill) {
+  const L = this.lvl(skill);
+  const list = (ACTIONS[skill] || []).filter((a) => a.lvl <= L && !SPECIAL_ACT.test(a.id) && (!a.in || this.hasInputs(a)));
+  if (!list.length) return null;
+  return list.reduce((b, a) => (a.lvl > b.lvl || (a.lvl === b.lvl && this.actionXp(skill, a) / this.actionTime(skill, a) > this.actionXp(skill, b) / this.actionTime(skill, b)) ? a : b));
+};
+const _skillTick = P.skillTick;
+P.skillTick = function (dt) {
+  const A = this.s.activity;
+  if (this.s.autoAct !== false && A?.skill && !SPECIAL_ACT.test(A.act || '')) {
+    this._baT = (this._baT || 0) + dt;
+    const cur = (ACTIONS[A.skill] || []).find((x) => x.id === A.act);
+    if (this._baT >= 1 || !cur || (cur.in && !this.hasInputs(cur))) {
+      this._baT = 0;
+      const b = this.bestAct(A.skill);
+      if (b && b.id !== A.act) this.s.activity = { ...A, act: b.id };
+    }
+  }
+  return _skillTick.call(this, dt);
+};
+U.bestActCard = function (p, k) {
+  const g = this.g, s = g.s, b = g.bestAct(k.id);
+  const c = h('div', 'card', `<label class="tg"><input type="checkbox" class="aa"${s.autoAct !== false ? ' checked' : ''}> ⚡ 항상 가장 높은 레벨 행동</label>
+    ${b ? `<button class="btn sm pri ba">▶ 최고 행동 시작: ${b.name}</button>` : '<span class="mut">할 수 있는 행동이 없습니다 (재료 부족)</span>'}`);
+  c.querySelector('.aa').addEventListener('change', (e) => { s.autoAct = e.target.checked; });
+  c.querySelector('.ba')?.addEventListener('click', () => g.startSkill(k.id, b.id));
+  p.appendChild(c);
+};
+
+// ---- 분해: 한 단계 높은 아이템 1개 → 2개 (모자라면 더 높은 단계부터 차례로) ----
+const DECOMP_KIND = new Set(['mat', 'bone', 'food', 'raw', 'potion']);
+const upOf = (id) => {
+  const m = /^(.*?)(\d+)$/.exec(id);
+  if (!m || !DECOMP_KIND.has(ITEMS[id]?.kind)) return null;
+  const up = m[1] + (+m[2] + 1);
+  return ITEMS[up] && ITEMS[up].kind === ITEMS[id].kind ? up : null;
+};
+P.canProduce = function (id, n, depth = 0) {
+  if (n <= 0) return true;
+  const up = upOf(id);
+  if (!up || depth > 25) return false;
+  const k = Math.ceil(n / 2), have = this.have(up);
+  return have >= k || this.canProduce(up, k - have, depth + 1);
+};
+P.produce = function (id, n) {
+  if (n <= 0) return true;
+  if (!this.canProduce(id, n)) return false;
+  const up = upOf(id), k = Math.ceil(n / 2);
+  if (this.have(up) < k && !this.produce(up, k - this.have(up))) return false;
+  this.give(up, -k);
+  this.give(id, 2 * k);
+  this.s.log.got[id] = (this.s.log.got[id] || 0) + 2 * k;
+  return true;
+};
+// 행동 재료가 모자라면: 최대 10번 할 만큼 (안 되면 1번이라도) 분해해서 채움
+P.fillFor = function (inp) {
+  const short = (times) => Object.entries(inp || {}).map(([id, n]) => [id, n * times - this.have(id)]).filter(([, d]) => d > 0);
+  for (const times of [10, 5, 3, 1]) {
+    const need = short(times);
+    if (!need.length) return times;
+    if (need.every(([id, d]) => this.canProduce(id, d))) {
+      for (const [id, d] of need) this.produce(id, d);
+      this.toast(`🔽 분해로 채움: ${need.map(([id, d]) => `${ITEMS[id].name} +${fmt(d)}`).join(', ')}`, 'info');
+      return times;
+    }
+  }
+  this.toast('분해할 상위 아이템이 없습니다', 'bad');
+  return 0;
+};
+P.canFill = function (inp) { return Object.entries(inp || {}).every(([id, n]) => this.have(id) >= n || this.canProduce(id, n - this.have(id))); };
+// 의뢰(납품): 남은 수량만큼 분해해서 납품
+P.rqFill = function (q) {
+  const left = q.qty - this.rqProg(q);
+  if (left <= 0 || !this.produce(q.target, left)) { this.toast('분해할 상위 아이템이 없습니다', 'bad'); return false; }
+  this.toast(`🔽 분해로 납품: ${ITEMS[q.target].name} +${fmt(left)}`, 'info');
+  this.rqTick?.();
+  return true;
+};
+// 의뢰판: 납품 의뢰에 분해 버튼
+const _townRqFn = U.townFns?.quest;
+if (_townRqFn) {
+  U.townFns.quest = function (ui, p, g, s) {
+    _townRqFn(ui, p, g, s);
+    const rows = [...p.querySelectorAll('.row')];
+    const list = s.rq.list.map((q) => ({ q, r: Math.min(1, g.rqProg(q) / q.qty) })).sort((a, b) => b.r - a.r);
+    list.forEach(({ q }, i) => {
+      if (q.type !== 'got' || !rows[i]) return;
+      const left = q.qty - g.rqProg(q);
+      if (left <= 0 || !g.canProduce(q.target, left)) return;
+      const b = h('button', 'btn sm', '🔽 분해로 납품');
+      b.addEventListener('click', () => g.rqFill(q));
+      rows[i].appendChild(b);
+    });
+  };
+}
+// 도구 업그레이드: 재료가 모자라면 분해 버튼
+const _toolShop = U.toolShop;
+U.toolShop = function (p) {
+  _toolShop.call(this, p);
+  const g = this.g;
+  const cards = [...p.querySelectorAll('.tshop')];
+  Object.keys(TOOLS).forEach((sk, i) => {
+    const nx = g.toolNext(sk), c = cards[i];
+    if (!nx || nx.matOk || !c || !g.canFill(nx.mat)) return;
+    const b = h('button', 'btn sm', '🔽 분해해서 재료 채우기');
+    b.addEventListener('click', () => {
+      const need = Object.entries(nx.mat).map(([id, n]) => [id, n - g.have(id)]).filter(([, d]) => d > 0);
+      for (const [id, d] of need) g.produce(id, d);
+      g.toast(`🔽 분해로 채움: ${need.map(([id, d]) => `${ITEMS[id].name} +${fmt(d)}`).join(', ')}`, 'info');
+    });
+    c.appendChild(b);
+  });
+};
+// 없어진 장비(방패 등)가 보상인 의뢰는 보상을 새로 뽑음
+const _rqInitX = P.rqInit;
+P.rqInit = function () {
+  _rqInitX.call(this);
+  for (const q of this.s.rq.list) if ((q.reward?.gear && !ITEMS[q.reward.gear]) || Object.keys(q.reward?.items || {}).some((id) => !ITEMS[id])) q.reward = this.rqReward(q.t ?? 0);
+};

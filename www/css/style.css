@@ -134,3 +134,12 @@ body { word-break: keep-all; overflow-wrap: anywhere; }
 .tdots i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
 .tshop .mut span { white-space: nowrap; }
 .ok { color: var(--good); font-weight: 700; font-size: 12px; }
+/* 화면이 옆으로 밀리지 않게: 아래 내용 칸은 세로로만 스크롤 */
+html, body { overflow-x: hidden; max-width: 100%; overscroll-behavior-x: none; }
+#panel { overflow-x: hidden; overscroll-behavior-x: none; }
+#panel > * { max-width: 100%; box-sizing: border-box; }
+#panel .row, #panel .card, #panel .slot { min-width: 0; overflow-wrap: break-word; }
+#panel .row .info { min-width: 0; }
+#panel .ic { overflow: hidden; flex-shrink: 0; }
+#panel img, #panel table, #panel select, #panel input { max-width: 100%; }
+.tabs { overflow-x: hidden; }

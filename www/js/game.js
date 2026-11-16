@@ -237,8 +237,6 @@ export class Game {
     const it = ITEMS[id];
     if (!this.canEquip(id) || this.have(id) < 1) return false;
     this.unequip(it.slot);
-    if (it.twoHand) this.unequip('shield');
-    if (it.slot === 'shield' && this.weapon()?.twoHand) this.unequip('weapon');
     this.give(id, -1);
     this.s.equip[it.slot] = id;
     this.dirty();
@@ -261,8 +259,6 @@ export class Game {
     const eq = { ...this.s.equip };
     const before = this.powerRaw();
     this.s.equip[it.slot] = id;
-    if (it.twoHand) delete this.s.equip.shield;
-    if (it.slot === 'shield' && ITEMS[eq.weapon]?.twoHand) delete this.s.equip.weapon;
     this.dirty();
     const after = this.powerRaw();
     this.s.equip = eq;
