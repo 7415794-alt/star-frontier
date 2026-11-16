@@ -21,7 +21,7 @@ window.game = game; window.ui = ui;
 if (off) {
   const items = Object.entries(off.items).map(([id, n]) => `${ITEMS[id].icon}${ITEMS[id].name} +${n.toLocaleString()}`).join(', ') || '없음';
   const xp = Object.entries(off.xp).map(([k, v]) => `${SKILL[k].name} +${Math.floor(v).toLocaleString()}`).join(', ') || '없음';
-  ui.modal('🌙 오프라인 진행', `${Math.floor(off.sec / 60)}분 동안 진행했습니다.<br>처치 ${off.kills} · 🪙 +${off.coins.toLocaleString()}<br>경험치: ${xp}<br>획득: ${items}`, [{ label: '확인', pri: true }]);
+  ui.modal('🌙 오프라인 진행', `${Math.floor(off.sec / 60)}분 동안 진행했습니다.<br>처치 ${off.kills} · 💰 +${off.coins.toLocaleString()}<br>경험치: ${xp}<br>획득: ${items}`, [{ label: '확인', pri: true }]);
 }
 
 let last = performance.now();
@@ -30,8 +30,10 @@ function loop(now) {
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 30) { const r = game.offline(dt); dt = 0; if (r) game.toast(`🌙 ${Math.floor(r.sec / 60)}분 진행 · 처치 ${r.kills}`); }
-  acc += Math.min(dt, 1);
-  while (acc >= 0.05) { game.update(0.05); acc -= 0.05; }
+  // 배속: 게임 시간 = 실제 시간 x 배속 (프레임당 최대 1초 x 배속)
+  acc += Math.min(dt, 1) * game.speed();
+  let n = 0;
+  while (acc >= 0.05 && n++ < 1000) { game.update(0.05); acc -= 0.05; }
   ui.frame();
   requestAnimationFrame(loop);
 }

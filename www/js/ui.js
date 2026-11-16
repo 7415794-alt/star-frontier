@@ -1,15 +1,19 @@
 // 별무리 개척기 — 화면
 import {
-  VERSION, SKILLS, SKILL, ITEMS, GEAR, SLOTS, SLOT_IDS, STYLES, STYLE_IDS, ZONES, ACTIONS, PRAYERS, PETS, PET, TIERS,
-  XP_TABLE, MAX_LVL, SPECIAL_NAMES, SLOT_SPECIAL, SHOP, monMaxHit,
+  VERSION, SKILLS, SKILL, ITEMS, SLOTS, SLOT_IDS, STYLES, ZONES, ACTIONS, PRAYERS, PETS, TIERS, STATS, STAT_IDS, SPELLS, CAPS,
+  XP_TABLE, MAX_LVL, SPECIAL_NAMES, SHOP,
 } from './data.js';
-import { exportSave, importSave } from './game.js';
+import { exportSave, importSave, C } from './game.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const fmt = (n) => Math.floor(n).toLocaleString('ko-KR');
 const pct = (v, d = 0) => `${(v * 100).toFixed(d)}%`;
 const spText = (sp) => Object.entries(sp || {}).map(([k, v]) => `${SPECIAL_NAMES[k]} +${pct(v, v < 0.1 ? 1 : 0)}`).join(', ');
+const spOr = (sp) => (Object.keys(sp || {}).length ? `<span class="sp">★ ${spText(sp)}</span>` : '');
+const stVal = (k, v) => (STATS[k].pct ? pct(v, 1) : fmt(v));
+const stText = (st) => Object.entries(st || {}).filter(([, v]) => v).map(([k, v]) => `${STATS[k].icon}${STATS[k].name} +${stVal(k, v)}`).join(' ');
+const sign = (v, d = 1) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(d)}%`;
 const time = (sec) => sec >= 3600 ? `${Math.floor(sec / 3600)}시간 ${Math.floor((sec % 3600) / 60)}분` : sec >= 60 ? `${Math.floor(sec / 60)}분 ${Math.floor(sec % 60)}초` : `${sec.toFixed(1)}초`;
 
 export class UI {
@@ -20,6 +24,8 @@ export class UI {
     this.zone = 0;
     this.skillSel = 'wood';
     this.sig = '';
+    this.recMode = 'real';
+    $('#spdBtn').addEventListener('click', () => { this.g.cycleSpeed(); this.g.toast(`⏩ 게임 속도 x${this.g.speed()}`); });
     document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { this.tab = b.dataset.tab; this.render(true); }));
     $('#act').addEventListener('click', (e) => { if (e.target.id === 'stopBtn') this.g.stop(); });
     this.render(true);
@@ -28,7 +34,7 @@ export class UI {
   // 바뀐 게 있을 때만 패널을 다시 그림 (스크롤 유지)
   signature() {
     const s = this.g.s;
-    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.meleeMode, s.autoEat, s.showNums, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0]);
+    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0]);
   }
   render(force = false) {
     const sig = this.signature();
@@ -45,8 +51,9 @@ export class UI {
   // 매 프레임: 상단 행동 패널 · 재화 · 알림
   frame() {
     const g = this.g, s = g.s, rt = g.rt;
-    $('#coins').textContent = '🪙 ' + fmt(s.coins);
-    $('#cbLvl').textContent = '⚔ 전투 Lv ' + g.combatLevel();
+    $('#coins').textContent = '💰 ' + fmt(s.coins);
+    $('#cbLvl').innerHTML = `⚔ Lv ${g.combatLevel()} · 전투력 <span class="pw">${fmt(g.power())}</span>`;
+    $('#spdBtn').textContent = 'x' + g.speed();
     const act = $('#act');
     const A = s.activity;
     const key = A ? A.type + (A.mon || A.act || A.bone) : 'idle';
@@ -64,7 +71,8 @@ export class UI {
       $('.monIc', act).style.opacity = m ? 1 : 0.3;
       $('.heroIc', act).style.opacity = rt.dead > 0 ? 0.3 : 1;
       const food = Object.keys(s.bank).filter((id) => ITEMS[id]?.kind === 'food').reduce((a, id) => a + s.bank[id], 0);
-      $('.info', act).textContent = `처치 ${fmt(s.kills?.[A.mon] || 0)} · 음식 ${fmt(food)}개 · 명중 ${pct(g.vs(mm).hit)} · 최대 ${g.maxHit()}`;
+      const v = g.vs(mm);
+      $('.info', act).innerHTML = `처치 ${fmt(s.kills?.[A.mon] || 0)} · 음식 ${food ? fmt(food) + '개' : '<b style="color:#f87171">없음!</b>'} · 피해 ${v.min}~${v.mh}`;
       // 떠오르는 숫자
       const fl = $('.floats', act);
       for (const f of rt.fx) {
@@ -121,17 +129,31 @@ export class UI {
   tabCombat(p) {
     const g = this.g, s = g.s;
     const st = g.style();
-    const b = g.bonuses();
-    const card = h('div', 'card', `<b>${STYLES[st].icon} ${STYLES[st].name} 전투</b> <span class="mut">(무기로 결정)</span>
+    const pr = g.profile();
+    const eff = (k) => fmt(C.eff(pr, k));
+    const mainStat = st === 'melee' ? `<div>🗡️ 공격 <b>${eff('atk')}</b></div><div>💪 힘 <b>${eff('str')}</b></div>`
+      : st === 'ranged' ? `<div>🏹 원거리 <b>${eff('rng')}</b></div><div>⏱ 공격 주기 <b>${g.atkInterval().toFixed(2)}초</b></div>`
+        : `<div>🔮 마법 <b>${eff('mag')}</b></div><div>${g.spell().icon} 주문 배율 <b>x${g.spell().mult}</b></div>`;
+    const card = h('div', 'card', `<b>${STYLES[st].icon} ${STYLES[st].name} 전투</b> <span class="mut">(무기로 결정)</span> · 전투력 <span class="pw">${fmt(g.power())}</span>
       <div class="stats" style="margin-top:6px">
-        <div>명중 굴림 <b>${fmt(g.atkRoll())}</b></div><div>최대 피해 <b>${g.maxHit()}</b></div>
-        <div>공격 주기 <b>${g.atkInterval().toFixed(2)}초</b></div><div>최대 체력 <b>${fmt(g.maxHp())}</b></div>
-        <div>근접 방어 <b>${fmt(b.def.melee)}</b></div><div>원거리 방어 <b>${fmt(b.def.ranged)}</b></div>
-        <div>마법 방어 <b>${fmt(b.def.magic)}</b></div><div>자동 섭취 <b>체력 ${pct(s.autoEat)} 이하</b></div>
+        ${mainStat}
+        <div>최대 피해 <b>${g.maxHit()}</b></div><div>🛡️ 방어 <b>${eff('def')}</b></div>
+        <div>최대 체력 <b>${fmt(g.maxHp())}</b></div>${st === 'ranged' ? '' : `<div>공격 주기 <b>${g.atkInterval().toFixed(2)}초</b></div>`}
+        <div>🩸 흡수 <b>${pct(C.ls(pr), 1)}</b></div><div>🧱 피해 감소 <b>${pct(C.dr(pr), 1)}</b></div>
       </div>
-      ${st === 'melee' ? `<div class="mut" style="margin-top:6px">근접 경험치</div><div class="seg melee">${[['atk', '🗡️ 공격'], ['str', '💪 힘'], ['def', '🛡️ 방어'], ['shared', '⚖️ 나눠서']].map(([k, n]) => `<button data-k="${k}" class="${s.meleeMode === k ? 'on' : ''}">${n}</button>`).join('')}</div>` : `<div class="mut" style="margin-top:6px">${st === 'ranged' ? '원거리' : '마법'} 경험치 + 체력 경험치(1/3)</div>`}`);
+      <div class="mut" style="margin-top:4px">최종 스탯 = 레벨 + 장비 · 경험치: ${st === 'melee' ? '공격 · 힘' : STYLES[st].name} 100% + 방어 70%</div>`);
     p.appendChild(card);
-    card.querySelectorAll('.melee button').forEach((x) => x.addEventListener('click', () => { s.meleeMode = x.dataset.k; }));
+    if (st === 'magic') {
+      const sp = h('div', 'seg');
+      for (const x of SPELLS) {
+        const lock = g.lvl('mag') < x.lvl;
+        const b = h('button', g.spell().id === x.id ? 'on' : '', `${x.icon} ${x.name}<br><small>${lock ? '🔒 Lv ' + x.lvl : 'x' + x.mult}</small>`);
+        if (lock) b.disabled = true;
+        b.addEventListener('click', () => { s.spell = x.id; });
+        sp.appendChild(b);
+      }
+      p.appendChild(sp);
+    }
 
     const seg = h('div', 'seg');
     ZONES.forEach((z, i) => {
@@ -144,18 +166,54 @@ export class UI {
     for (const m of zn.mons) {
       const v = g.vs(m);
       const on = s.activity?.type === 'combat' && s.activity.mon === m.id;
-      const danger = v.mdps * v.ttk > g.maxHp() * 0.5;
+      const danger = v.killsPerLife < 3;
       const r = h('div', 'row' + (on ? ' on' : ''), `
         <div class="ic">${m.icon}</div>
-        <div class="info"><div class="nm">${m.boss ? '👑 ' : ''}${m.name} <span class="mut">Lv ${m.lvl} · 체력 ${fmt(m.hp)}</span></div>
-        <div class="mut">공격 ${STYLES[m.style].icon}${STYLES[m.style].name} (최대 ${monMaxHit(m)}, ${m.interval}초) · 약점 ${STYLES[m.weak].icon}${STYLES[m.weak].name}</div>
-        <div class="mut">내 명중 ${pct(v.hit)} · 처치 약 ${time(v.ttk)} · 적 명중 ${pct(v.mHit)} · 받는 피해 ${v.mdps.toFixed(1)}/초${danger ? ' <span style="color:#f87171">⚠ 위험</span>' : ''} · 처치 ${fmt(s.kills?.[m.id] || 0)}</div></div>
+        <div class="info"><div class="nm">${m.boss ? '👑 ' : ''}${m.name} <span class="mut">Lv ${m.lvl} · 체력 ${fmt(m.hp)} · 🔍 전리품</span></div>
+        <div class="mut">${STYLES[m.style].icon}${STYLES[m.style].name} · 공격 ${m.atk} · 힘 ${m.str} · 방어 ${v.mdef} · ${m.interval}초 · 약점 ${STYLES[m.weak].icon}</div>
+        <div class="mut">내 피해 ${v.min}~${v.mh} · 처치 약 ${time(v.ttk)} · 적 명중 ${pct(v.mHit)} · 최대 ${v.mMax}${danger ? ' <span style="color:#f87171">⚠ 위험</span>' : ''} · 처치 ${fmt(s.kills?.[m.id] || 0)}</div></div>
         <button class="btn ${on ? '' : 'pri'}">${on ? '■' : '⚔ 싸우기'}</button>`);
-      $('button', r).addEventListener('click', () => { if (on) g.stop(); else g.startCombat(m.id); });
+      $('button', r).addEventListener('click', (e) => { e.stopPropagation(); if (on) g.stop(); else g.startCombat(m.id); });
+      $('.info', r).addEventListener('click', () => this.lootModal(m));
+      $('.ic', r).addEventListener('click', () => this.lootModal(m));
       p.appendChild(r);
     }
-    p.appendChild(h('div', 'card mut', `전리품: ${ITEMS['bone' + zn.t].icon} ${ITEMS['bone' + zn.t].name} · 🪙 동전 · ${ITEMS['hide' + zn.t].name} / ${ITEMS['cloth' + zn.t].name} · 날생선 · ${TIERS[zn.t].n} 장비(일반 2.5% · 보스 30%) · 보스는 펫 ${PETS.find((x) => x.src === 'boss:' + zn.t).icon} 확률`));
-    p.appendChild(h('div', 'card mut', '공식: 명중 = 내 명중 굴림 ÷ (내 굴림 + 적 방어 굴림), 굴림 = (레벨 + 10) × (장비 보너스 + 50) · 최대 피해 = 1 + (힘/원거리/마법 레벨 + 8) × (공격력 보너스 + 40) ÷ 200 · 맞으면 1 ~ 최대 피해 · 몬스터는 자기 공격 주기마다 한 번 공격 · 약점 방식으로 때리면 적 방어가 크게 낮음'));
+    this.recCard(p, zn);
+    p.appendChild(h('div', 'card mut', '공식 · 최대 피해: 근접 (공격+힘)×0.85, 원거리 원거리×0.85, 마법 마법×0.70×주문 배율 → 몬스터 방어×0.3만큼 깎임 · 내 공격은 항상 맞고 최소~최대 사이 피해 · 적 명중률 = 적 공격 ÷ (적 공격 + 내 방어×0.43) · 맞으면 적 힘×0.42~0.58 피해를 방어 효율만큼 줄이고 피해 감소 %를 한 번 더 뺌 · 약점 방식으로 때리면 적 방어 절반'));
+  }
+
+  // 지금 어떤 스탯을 올리는 게 좋은지: 실제 전투(분당 처치) / 전투력 두 기준
+  recCard(p, zn) {
+    const g = this.g, s = g.s;
+    const A = s.activity;
+    const m = A?.type === 'combat' ? MONSTER_OF(A.mon) : zn.mons[0];
+    const r = g.analyze(m);
+    const list = this.recMode === 'real' ? r.real : r.pow;
+    const key = this.recMode === 'real' ? 'real' : 'power';
+    const rows = list.slice(0, 6).map((x, i) => `<div class="${i === 0 ? 'best' : ''}">${i === 0 ? '👍 ' : ''}${x.label}</div><div class="up">${sign(x[key], 2)}</div>`).join('');
+    const c = h('div', 'card', `<b>📈 지금 올리면 좋은 스탯</b>
+      <div class="seg" style="margin-top:6px"><button data-m="real" class="${this.recMode === 'real' ? 'on' : ''}">⚔ 실제 전투</button><button data-m="pow" class="${this.recMode === 'pow' ? 'on' : ''}">💪 전투력</button></div>
+      <div class="mut">${this.recMode === 'real' ? `${m.icon} ${m.name} 상대로 분당 처치 수 증가 (지금 ${r.now.kpm.toFixed(1)}마리/분)` : `몬스터와 상관없는 순수 강함 증가 (지금 ${fmt(r.power)})`}</div>
+      <div class="rec">${rows || '<div class="mut">올릴 수 있는 스탯이 없습니다</div>'}</div>
+      <div class="mut" style="margin-top:4px">레벨 +1 / 장비 스탯 +10 (흡수 · 피해 감소는 +1%p) 했을 때 기준 · 흡수 최대 ${pct(CAPS.ls)} · 피해 감소 최대 ${pct(CAPS.dr)}</div>`);
+    c.querySelectorAll('[data-m]').forEach((b) => b.addEventListener('click', () => { this.recMode = b.dataset.m; }));
+    p.appendChild(c);
+  }
+
+  // 몬스터를 누르면 전리품 표
+  lootModal(m) {
+    const g = this.g;
+    const mul = g.dropMult();
+    const rows = m.loot.map((l) => {
+      const it = ITEMS[l.id];
+      const pr = l.fixed ? 1 : Math.min(1, l.p * mul);
+      const n = l.a === l.b ? `${l.a}` : `${l.a}~${l.b}`;
+      const col = it.kind === 'gear' ? `color:${TIERS[it.t].c}` : '';
+      return `<tr><td>${it.icon}</td><td style="${col}">${it.name}${it.kind === 'gear' ? `<br><small class="mut">${SLOTS[it.slot].name} · ${stText(it.st)}</small>` : ''}</td><td>x${n}</td><td style="text-align:right">${pr >= 1 ? '항상' : pct(pr, pr < 0.01 ? 2 : 1)}</td></tr>`;
+    }).join('');
+    const pet = m.boss ? PETS.find((x) => x.src === 'boss:' + m.z) : null;
+    this.modal(`${m.icon} ${m.name} 전리품`, `<div class="mut">Lv ${m.lvl} · 💰 ${fmt(m.coins[0])}~${fmt(m.coins[1])} · 드롭률 보너스 ${sign(mul - 1, 0)} 적용</div>
+      <div style="max-height:55vh;overflow:auto;margin-top:6px"><table class="tbl loot" style="width:100%">${rows}${pet ? `<tr><td>${pet.icon}</td><td>펫 ${pet.name}</td><td>x1</td><td style="text-align:right">${pct(Math.min(1, pet.p * mul), 2)}</td></tr>` : ''}</table></div>`, [{ label: '닫기' }]);
   }
 
   // ---------- 스킬 ----------
@@ -192,9 +250,7 @@ export class UI {
   }
 
   gearLine(it) {
-    const st = it.stats;
-    const part = (k, n) => STYLE_IDS.filter((x) => st[k][x]).map((x) => `${STYLES[x].icon}${n} ${st[k][x] > 0 ? '+' : ''}${st[k][x]}`).join(' ');
-    return [part('acc', '명중'), part('pow', '공격력'), part('def', '방어'), `<span class="sp">★ ${spText(st.sp)}</span>`, it.speed ? `주기 ${it.speed}초` : '', it.twoHand ? '양손' : '', `요구 ${SKILL[it.req[0]].name} ${it.req[1]}`].filter(Boolean).join(' · ');
+    return [stText(it.st), it.speed ? `주기 ${it.speed}초` : '', it.twoHand ? '양손' : '', `요구 ${SKILL[it.req[0]].name} ${it.req[1]}`].filter(Boolean).join(' · ');
   }
 
   // ---------- 장비 ----------
@@ -203,24 +259,24 @@ export class UI {
     const grid = h('div', 'grid2');
     for (const sl of SLOT_IDS) {
       const it = ITEMS[s.equip[sl]];
-      const [spk] = SLOT_SPECIAL[sl];
-      const c = h('div', 'slot', `<div class="t">${SLOTS[sl].icon} ${SLOTS[sl].name} · <span class="sp">★ ${SPECIAL_NAMES[spk]}</span></div><div class="n" style="color:${it ? TIERS[it.t].c : 'var(--mut)'}">${it ? it.icon + ' ' + it.name : '비어 있음'}</div>${it ? `<div class="t sp">${spText(it.stats.sp)}</div>` : ''}`);
+      const c = h('div', 'slot', `<div class="t">${SLOTS[sl].icon} ${SLOTS[sl].name}</div><div class="n" style="color:${it ? TIERS[it.t].c : 'var(--mut)'}">${it ? it.icon + ' ' + it.name : '비어 있음'}</div>${it ? `<div class="t">${stText(it.st)}</div>` : ''}`);
       if (it) { c.style.cursor = 'pointer'; c.title = '눌러서 해제'; c.addEventListener('click', () => g.unequip(sl)); }
       grid.appendChild(c);
     }
-    p.appendChild(h('div', 'mut', '장착한 칸을 누르면 해제 · 부위마다 ★ 특수 옵션이 정해져 있고 단계가 높을수록 커집니다'));
+    p.appendChild(h('div', 'mut', '장착한 칸을 누르면 해제 · 장비 스탯: 공격 · 힘 · 방어 · 원거리 · 마법 · 생명력 흡수 · 피해 감소'));
     p.appendChild(grid);
     const b = g.bonuses();
-    const tbl = `<table class="tbl"><tr><th></th>${STYLE_IDS.map((x) => `<th>${STYLES[x].icon}${STYLES[x].name}</th>`).join('')}</tr>
-      ${[['acc', '명중'], ['pow', '공격력'], ['def', '방어']].map(([k, n]) => `<tr><td>${n}</td>${STYLE_IDS.map((x) => `<td>${fmt(b[k][x])}</td>`).join('')}</tr>`).join('')}</table>`;
-    p.appendChild(h('div', 'card', `<b>장비 보너스</b>${tbl}<div style="margin-top:6px"><b>특수 옵션 합계</b> <span class="mut">(장비 · 기도 · 펫)</span><div class="sp">${spText(b.sp) || '없음'}</div></div>`));
+    const tbl = `<div class="stats">${STAT_IDS.map((k) => `<div>${STATS[k].icon} ${STATS[k].name} <b>+${stVal(k, b.st[k])}</b></div>`).join('')}</div>`;
+    p.appendChild(h('div', 'card', `<b>장비 보너스</b>${tbl}<div style="margin-top:6px"><b>기도 · 펫 보너스</b><div class="sp">${spText(b.sp) || '없음'}</div></div>`));
     p.appendChild(h('div', 'h', '가방의 장비'));
     const gear = Object.keys(s.bank).filter((id) => ITEMS[id].kind === 'gear').sort((a, c) => ITEMS[c].t - ITEMS[a].t || ITEMS[a].slot.localeCompare(ITEMS[c].slot));
     if (!gear.length) p.appendChild(h('div', 'mut', '장비가 없습니다. 몬스터 드롭 · 대장 · 공예로 얻습니다.'));
     for (const id of gear) {
       const it = ITEMS[id];
       const ok = g.canEquip(id);
-      const r = h('div', 'row' + (ok ? '' : ' lock'), `<div class="ic">${it.icon}</div><div class="info"><div class="nm" style="color:${TIERS[it.t].c}">${it.name} <span class="mut">x${g.have(id)} · ${SLOTS[it.slot].name}</span></div><div class="mut">${this.gearLine(it)}</div></div>
+      const d = g.equipDelta(id);
+      const dt = d ? `<span style="color:${d > 0 ? '#4ade80' : '#f87171'}">전투력 ${d > 0 ? '+' : ''}${fmt(d)}</span>` : '<span class="mut">전투력 변화 없음</span>';
+      const r = h('div', 'row' + (ok ? '' : ' lock'), `<div class="ic">${it.icon}</div><div class="info"><div class="nm" style="color:${TIERS[it.t].c}">${it.name} <span class="mut">x${g.have(id)} · ${SLOTS[it.slot].name}</span></div><div class="mut">${this.gearLine(it)}</div><div class="mut">${dt}</div></div>
         <div style="display:flex;flex-direction:column;gap:4px"><button class="btn sm pri eq"${ok ? '' : ' disabled'}>장착</button><button class="btn sm sl">판매 ${fmt(it.value)}</button></div>`);
       $('.eq', r).addEventListener('click', () => g.equip(id));
       $('.sl', r).addEventListener('click', () => g.sell(id, 1));
@@ -232,11 +288,11 @@ export class UI {
   tabBank(p) {
     const g = this.g, s = g.s;
     const ids = Object.keys(s.bank).filter((id) => ITEMS[id].kind !== 'gear').sort((a, b) => (ITEMS[a].kind + ITEMS[a].t).localeCompare(ITEMS[b].kind + ITEMS[b].t));
-    p.appendChild(h('div', 'h', `🎒 가방 (${ids.length}종) · 🪙 ${fmt(s.coins)}`));
+    p.appendChild(h('div', 'h', `🎒 가방 (${ids.length}종) · 💰 ${fmt(s.coins)}`));
     for (const id of ids) {
       const it = ITEMS[id];
       const extra = it.kind === 'food' ? ` · 회복 ${it.heal}` : it.kind === 'bone' ? ` · 신성 XP ${it.xp}` : '';
-      const r = h('div', 'row', `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name} <span class="mut">x${fmt(g.have(id))}</span></div><div class="mut">개당 🪙${fmt(it.value)}${extra}</div></div>
+      const r = h('div', 'row', `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name} <span class="mut">x${fmt(g.have(id))}</span></div><div class="mut">개당 💰${fmt(it.value)}${extra}</div></div>
         <button class="btn sm s1">1개 판매</button><button class="btn sm sa">모두</button>`);
       $('.s1', r).addEventListener('click', () => g.sell(id, 1));
       $('.sa', r).addEventListener('click', () => g.sell(id, g.have(id)));
@@ -245,7 +301,7 @@ export class UI {
     p.appendChild(h('div', 'h', '🏪 상점'));
     for (const sh of SHOP) {
       const it = ITEMS[sh.id];
-      const r = h('div', 'row', `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name}</div><div class="mut">${it.kind === 'gear' ? this.gearLine(it) : `회복 ${it.heal}`}</div></div><button class="btn sm pri"${s.coins >= sh.price ? '' : ' disabled'}>🪙 ${fmt(sh.price)}</button>`);
+      const r = h('div', 'row', `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name}</div><div class="mut">${it.kind === 'gear' ? this.gearLine(it) : `회복 ${it.heal}`}</div></div><button class="btn sm pri"${s.coins >= sh.price ? '' : ' disabled'}>💰 ${fmt(sh.price)}</button>`);
       $('button', r).addEventListener('click', () => g.buy(sh.id));
       p.appendChild(r);
     }
@@ -277,7 +333,7 @@ export class UI {
   // ---------- 펫 ----------
   tabPets(p) {
     const g = this.g, s = g.s;
-    p.appendChild(h('div', 'card mut', `펫 ${s.pets.length} / ${PETS.length} · 1마리만 데리고 다니며, 펫마다 ★ 특수 옵션이 다릅니다`));
+    p.appendChild(h('div', 'card mut', `펫 ${s.pets.length} / ${PETS.length} · 1마리만 데리고 다니며, 펫마다 보너스가 다릅니다`));
     for (const pet of PETS) {
       const own = s.pets.includes(pet.id);
       const on = s.pet === pet.id;

@@ -1,41 +1,106 @@
 // 별무리 개척기 — 게임 로직
 import {
-  SKILLS, SKILL, ITEMS, GEAR, SLOT_IDS, STYLE_IDS, MONSTER, ZONES, ACTIONS, PRAYERS, PETS, PET, TIERS,
-  levelOf, XP_TABLE, roll, hitChance, maxHitOf, monMaxHit, CRIT_MULT, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
+  SKILLS, SKILL, ITEMS, SLOT_IDS, STAT_IDS, CAPS, MONSTER, ACTIONS, PRAYERS, PETS, PET, SPELLS, SPEEDS,
+  levelOf, baseHp, penChance, defEff, MON_ROLL, monFloor, monDef, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
 } from './data.js';
 
 export const SAVE_KEY = 'star-frontier-save-v1';
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 export function newState() {
   const xp = {};
   for (const s of SKILLS) xp[s.id] = 0;
-  xp.hp = XP_TABLE[10]; // 체력 Lv 10으로 시작
   return {
     v: SAVE_VERSION,
     coins: 0,
     xp,
-    bank: { sword0: 1, bread: 10 },
-    equip: {},
-    activity: null,            // { type: 'combat', mon } | { type: 'skill', skill, act }
-    meleeMode: 'atk',          // 근접 경험치: atk · str · def · shared
+    bank: { bread: 10 },
+    equip: { weapon: 'sword0' },
+    activity: null,            // { type: 'combat', mon } | { type: 'skill', skill, act } | { type: 'bury', bone }
+    spell: null,               // null = 쓸 수 있는 가장 강한 주문
     prayer: null,
     pet: null,
     pets: [],
-    autoEat: 0.5,              // 체력이 이 비율 아래면 음식 섭취
+    autoEat: 0.5,
     showNums: true,
+    speed: 1,
     stats: { kills: 0, deaths: 0, actions: 0 },
+    kills: {},
     lastSeen: Date.now(),
   };
 }
+
+// ---------- 전투 계산 (순수 함수: 능력치 묶음 p로 계산 → 추천 · 전투력에 그대로 사용) ----------
+// p = { lv: {atk,str,def,rng,mag}, st: {atk,str,def,rng,mag,ls,dr}, sp: {기도 · 펫 % 보너스}, style, speed, spellMult }
+// 최종 스탯 = 레벨 + 장비 스탯 (방어는 기도 % 보너스까지)
+const STD_ATK = 100; // 전투력 계산용 표준 공격자
+export const C = {
+  // 기도 · 펫은 스탯을 %로 올림
+  eff: (p, k) => (p.lv[k] + (p.st[k] || 0)) * (1 + (p.sp[k + 'Pct'] || 0)),
+  styleLv: (p) => (p.style === 'melee' ? (p.lv.atk + p.lv.str) / 2 : p.style === 'ranged' ? p.lv.rng : p.lv.mag),
+  // 최대 피해: 근접 (공격 + 힘) x 0.85 / 원거리 원거리 x 0.85 / 마법 마법 x 0.70 x 주문 배율
+  maxHit: (p) => {
+    let mh;
+    if (p.style === 'melee') mh = (C.eff(p, 'atk') + C.eff(p, 'str')) * 0.85;
+    else if (p.style === 'ranged') mh = C.eff(p, 'rng') * 0.85;
+    else mh = C.eff(p, 'mag') * 0.7 * p.spellMult;
+    return Math.max(1, Math.floor(mh));
+  },
+  // 몬스터 방어가 최대 피해를 깎음 (방어 x 0.3)
+  cap: (p, mdef = 0) => Math.max(1, C.maxHit(p) - Math.floor(mdef * 0.3)),
+  minFrac: (p) => Math.min(0.15, C.styleLv(p) * 0.0015),
+  minHit: (p, cap) => Math.max(1, Math.min(cap, Math.floor(cap * C.minFrac(p)))),
+  interval: (p) => p.speed,
+  maxHp: (p) => baseHp(p.lv.def),
+  ls: (p) => Math.min(CAPS.ls, (p.st.ls || 0) + (p.sp.ls || 0)),
+  dr: (p) => Math.min(CAPS.dr, (p.st.dr || 0) + (p.sp.dr || 0)),
+  avgHit: (p, mdef = 0) => {
+    const cap = C.cap(p, mdef);
+    return (C.minHit(p, cap) + cap) / 2;
+  },
+  // 몬스터 공격: 명중률은 방어로 낮춤 / 맞으면 피해를 방어 효율 · 피해 감소만큼 줄임
+  mHit: (p, m) => penChance(m.atk, C.eff(p, 'def')),
+  mDmg: (p, m, r) => {
+    const raw = Math.max(monFloor(m), Math.floor(m.str * r * (1 - defEff(C.eff(p, 'def'), m.str))));
+    return Math.max(0, Math.floor(raw * (1 - C.dr(p))));
+  },
+  vs: (p, m) => {
+    const mdef = monDef(m, p.style);
+    const dps = C.avgHit(p, mdef) / C.interval(p);
+    const ttk = m.hp / Math.max(0.01, dps);
+    const mHit = C.mHit(p, m);
+    const mMax = C.mDmg(p, m, MON_ROLL[1]);
+    const mAvg = (C.mDmg(p, m, MON_ROLL[0]) + mMax) / 2;
+    const mdps = (mHit * mAvg) / m.interval;
+    const hp = C.maxHp(p);
+    const heal = dps * C.ls(p) + hp * 0.001;
+    const net = mdps - heal;
+    const lossPerKill = Math.max(0, net) * ttk;
+    const killsPerLife = lossPerKill > 0 ? hp / lossPerKill : Infinity;
+    const cycle = ttk + RESPAWN;
+    const kpm = killsPerLife === Infinity ? 60 / cycle : (60 * killsPerLife) / (killsPerLife * cycle + DEATH_TIME + 3);
+    const cap = C.cap(p, mdef);
+    return { mdef, min: C.minHit(p, cap), mh: cap, dps, ttk, mHit, mMax, mdps, heal, killsPerLife, kpm };
+  },
+  // 전투력: 몬스터와 상관없는 순수한 강함 = √(초당 피해 x 버티는 힘)
+  power: (p) => {
+    const off = C.avgHit(p, 0) / C.interval(p);
+    const d = C.eff(p, 'def');
+    const taken = penChance(STD_ATK, d) * (1 - defEff(d, STD_ATK)) * (1 - C.dr(p));
+    const ehp = (C.maxHp(p) / Math.max(0.02, taken)) * (1 + C.ls(p) * 3);
+    return Math.round(Math.sqrt(Math.max(0, off) * ehp));
+  },
+};
 
 export class Game {
   constructor(s) {
     this.s = s;
     this.rt = { hp: 0, mon: null, monHp: 0, atkT: 0, monT: 0, respawn: 0, dead: 0, prog: 0, fx: [], log: [], cache: null, regenT: 0 };
-    this.listeners = [];
     this.rt.hp = this.maxHp();
   }
+
+  speed() { return SPEEDS.includes(this.s.speed) ? this.s.speed : 1; }
+  cycleSpeed() { const i = SPEEDS.indexOf(this.speed()); this.s.speed = SPEEDS[(i + 1) % SPEEDS.length]; }
 
   // ---------- 레벨 ----------
   lvl(id) { return levelOf(this.s.xp[id] || 0); }
@@ -43,100 +108,100 @@ export class Game {
     const before = this.lvl(id);
     this.s.xp[id] = (this.s.xp[id] || 0) + n;
     const after = this.lvl(id);
-    if (after > before) {
-      this.toast(`${SKILL[id].icon} ${SKILL[id].name} 레벨 ${after}!`, 'lvl');
-      this.dirty();
-    }
+    if (after > before) { this.toast(`${SKILL[id].icon} ${SKILL[id].name} 레벨 ${after}!`, 'lvl'); this.dirty(); }
   }
   combatLevel() {
     const L = (k) => this.lvl(k);
-    return Math.floor((L('def') + L('hp') + Math.floor(L('div') / 2)) / 4 + Math.max(L('atk') + L('str'), 1.5 * L('rng'), 1.5 * L('mag')) * 0.325);
+    const st = [(L('atk') + L('str')) / 2, L('rng'), L('mag')].sort((a, b) => b - a);
+    return Math.floor(L('def') * 0.25 + st[0] * 0.75 + st[1] * 0.3 + st[2] * 0.15);
   }
 
-  // ---------- 보유 ----------
   have(id) { return this.s.bank[id] || 0; }
   give(id, n = 1) {
     this.s.bank[id] = (this.s.bank[id] || 0) + n;
     if (this.s.bank[id] <= 0) delete this.s.bank[id];
   }
 
-  // ---------- 특수 옵션 · 능력치 ----------
+  // ---------- 능력치 ----------
   dirty() { this.rt.cache = null; }
   bonuses() {
     if (this.rt.cache) return this.rt.cache;
-    const z = () => ({ melee: 0, ranged: 0, magic: 0 });
-    const b = { acc: z(), pow: z(), def: z(), sp: {} };
+    const b = { st: Object.fromEntries(STAT_IDS.map((k) => [k, 0])), sp: {} };
     const addSp = (o) => { for (const [k, v] of Object.entries(o || {})) b.sp[k] = (b.sp[k] || 0) + v; };
     for (const sl of SLOT_IDS) {
       const it = ITEMS[this.s.equip[sl]];
       if (!it) continue;
-      for (const k of ['acc', 'pow', 'def']) for (const st of STYLE_IDS) b[k][st] += it.stats[k][st];
-      addSp(it.stats.sp);
+      for (const [k, v] of Object.entries(it.st)) b.st[k] += v;
+      addSp(it.sp);
     }
-    const pr = this.prayer();
-    if (pr) addSp(pr.fx);
+    addSp(this.prayer()?.fx);
     const pet = this.s.pet && this.s.pets.includes(this.s.pet) ? PET[this.s.pet] : null;
-    if (pet) addSp(pet.fx);
+    addSp(pet?.fx);
     this.rt.cache = b;
     return b;
   }
   sp(k) { return this.bonuses().sp[k] || 0; }
-  prayer() {
-    const p = PRAYERS.find((x) => x.id === this.s.prayer);
-    return p && this.lvl('div') >= p.lvl ? p : null;
-  }
+  prayer() { const p = PRAYERS.find((x) => x.id === this.s.prayer); return p && this.lvl('div') >= p.lvl ? p : null; }
   weapon() { return ITEMS[this.s.equip.weapon] || null; }
   style() { return this.weapon()?.style || 'melee'; }
-  atkInterval() { return (this.weapon()?.speed || 2.4) / (1 + this.sp('speed')); }
-  maxHp() { return Math.floor(this.lvl('hp') * 10 * (1 + this.sp('hpPct'))); }
-  accLvl(st = this.style()) { return st === 'melee' ? this.lvl('atk') : st === 'ranged' ? this.lvl('rng') : this.lvl('mag'); }
-  powLvl(st = this.style()) { return st === 'melee' ? this.lvl('str') : st === 'ranged' ? this.lvl('rng') : this.lvl('mag'); }
-  atkRoll(st = this.style()) { return roll(this.accLvl(st), this.bonuses().acc[st]) * (1 + this.sp('acc')); }
-  maxHit(st = this.style()) { return Math.max(1, Math.floor(maxHitOf(this.powLvl(st), this.bonuses().pow[st]) * (1 + this.sp('dmg')))); }
-  // 받는 공격 방어 굴림: 마법은 방어 30% + 마법 70%
-  defRoll(mStyle) {
-    const d = this.lvl('def'), m = this.lvl('mag');
-    const L = mStyle === 'magic' ? Math.floor(d * 0.3 + m * 0.7) : d;
-    return roll(L, this.bonuses().def[mStyle]) * (1 + this.sp('defPct'));
+  spell() {
+    const ok = SPELLS.filter((x) => this.lvl('mag') >= x.lvl);
+    return ok.find((x) => x.id === this.s.spell) || ok[ok.length - 1];
   }
-  monDefRoll(m, st = this.style()) { return roll(m.defLvl, m.defB[st]); }
-  monAtkRoll(m) { return roll(m.atkLvl, m.accB) * Math.max(0.1, 1 - this.sp('evade')); }
-  protectOf(style) { return style === 'melee' ? this.sp('pm') : style === 'ranged' ? this.sp('pr') : this.sp('pg'); }
-  // 몬스터 상대 예상 수치
-  vs(m) {
-    const st = this.style();
-    const hit = hitChance(this.atkRoll(st), this.monDefRoll(m, st));
-    const mh = this.maxHit(st);
-    const crit = Math.min(0.5, this.sp('crit'));
-    const avg = ((1 + mh) / 2) * (1 + crit * (CRIT_MULT - 1));
-    const dps = (hit * avg) / this.atkInterval();
-    const mHit = hitChance(this.monAtkRoll(m), this.defRoll(m.style));
-    const mMax = monMaxHit(m);
-    const red = (1 - Math.min(0.8, this.sp('dr'))) * (1 - this.protectOf(m.style));
-    const mdps = (mHit * ((1 + mMax) / 2) * red) / m.interval;
-    return { hit, mh, dps, ttk: m.hp / Math.max(0.01, dps), mHit, mMax, mdps };
+  profile() {
+    const b = this.bonuses();
+    return {
+      lv: { atk: this.lvl('atk'), str: this.lvl('str'), def: this.lvl('def'), rng: this.lvl('rng'), mag: this.lvl('mag') },
+      st: { ...b.st }, sp: { ...b.sp }, style: this.style(), speed: this.weapon()?.speed || 2.4, spellMult: this.spell().mult,
+    };
+  }
+  maxHp() { return C.maxHp(this.profile()); }
+  maxHit() { return C.maxHit(this.profile()); }
+  atkInterval() { return C.interval(this.profile()); }
+  vs(m) { return C.vs(this.profile(), m); }
+  power() { return C.power(this.profile()); }
+
+  // 스탯 추천: 레벨 +1 / 장비 스탯 +10 (흡수 · 피해 감소 +1%p) 했을 때
+  // real = 지금(또는 고른) 몬스터와 실제 전투의 분당 처치 증가 · power = 전투력 증가
+  analyze(m) {
+    const p0 = this.profile();
+    const now = m ? C.vs(p0, m) : null;
+    const pw0 = C.power(p0);
+    const st = p0.style;
+    const tests = [
+      ...(st === 'melee' ? [['lv', 'atk', '🗡️ 공격 Lv +1'], ['lv', 'str', '💪 힘 Lv +1']] : st === 'ranged' ? [['lv', 'rng', '🏹 원거리 Lv +1']] : [['lv', 'mag', '🔮 마법 Lv +1']]),
+      ['lv', 'def', '🛡️ 방어 Lv +1'],
+      ...(st === 'melee' ? [['st', 'atk', '장비 🗡️ 공격 +10', 10], ['st', 'str', '장비 💪 힘 +10', 10]] : st === 'ranged' ? [['st', 'rng', '장비 🏹 원거리 +10', 10]] : [['st', 'mag', '장비 🔮 마법 +10', 10]]),
+      ['st', 'def', '장비 🛡️ 방어 +10', 10], ['st', 'ls', '장비 🩸 생명력 흡수 +1%p', 0.01], ['st', 'dr', '장비 🧱 피해 감소 +1%p', 0.01],
+    ];
+    const rows = tests.map(([kind, k, label, d = 1]) => {
+      const p = { ...p0, lv: { ...p0.lv }, st: { ...p0.st } };
+      p[kind][k] += d;
+      const full = (k === 'ls' && C.ls(p0) >= CAPS.ls) || (k === 'dr' && C.dr(p0) >= CAPS.dr) || (kind === 'lv' && p0.lv[k] >= 100);
+      return { label, full, real: now ? C.vs(p, m).kpm / Math.max(1e-9, now.kpm) - 1 : 0, power: C.power(p) / Math.max(1, pw0) - 1 };
+    }).filter((r) => !r.full);
+    return { now, power: pw0, real: [...rows].sort((a, b) => b.real - a.real), pow: [...rows].sort((a, b) => b.power - a.power) };
   }
 
   // ---------- 장비 ----------
   canEquip(id) {
     const it = ITEMS[id];
     if (!it || it.kind !== 'gear') return false;
-    const [sk, L] = it.req;
-    return this.lvl(sk) >= L;
+    return this.lvl(it.req[0]) >= it.req[1];
   }
   equip(id) {
     const it = ITEMS[id];
     if (!this.canEquip(id) || this.have(id) < 1) return false;
-    this.unequip(it.slot, true);
-    if (it.twoHand) this.unequip('shield', true);
-    if (it.slot === 'shield' && this.weapon()?.twoHand) this.unequip('weapon', true);
+    this.unequip(it.slot);
+    if (it.twoHand) this.unequip('shield');
+    if (it.slot === 'shield' && this.weapon()?.twoHand) this.unequip('weapon');
     this.give(id, -1);
     this.s.equip[it.slot] = id;
     this.dirty();
     this.rt.hp = Math.min(this.rt.hp, this.maxHp());
     return true;
   }
-  unequip(slot, quiet = false) {
+  unequip(slot) {
     const id = this.s.equip[slot];
     if (!id) return false;
     this.give(id, 1);
@@ -144,6 +209,21 @@ export class Game {
     this.dirty();
     this.rt.hp = Math.min(this.rt.hp, this.maxHp());
     return true;
+  }
+  // 장비를 끼면 전투력이 얼마나 바뀌는지
+  equipDelta(id) {
+    const it = ITEMS[id];
+    if (!it) return 0;
+    const eq = { ...this.s.equip };
+    const before = this.power();
+    this.s.equip[it.slot] = id;
+    if (it.twoHand) delete this.s.equip.shield;
+    if (it.slot === 'shield' && ITEMS[eq.weapon]?.twoHand) delete this.s.equip.weapon;
+    this.dirty();
+    const after = this.power();
+    this.s.equip = eq;
+    this.dirty();
+    return after - before;
   }
   sell(id, n = 1) {
     n = Math.min(n, this.have(id));
@@ -161,10 +241,9 @@ export class Game {
     return true;
   }
 
-  // ---------- 행동 선택 ----------
+  // ---------- 행동 ----------
   startCombat(monId) {
-    const m = MONSTER[monId];
-    if (!m) return false;
+    if (!MONSTER[monId]) return false;
     this.s.activity = { type: 'combat', mon: monId };
     this.spawn();
     return true;
@@ -188,8 +267,7 @@ export class Game {
   stop() { this.s.activity = null; this.rt.mon = null; }
   hasInputs(a) { return Object.entries(a.in || {}).every(([id, n]) => this.have(id) >= n); }
   actionTime(skill, a) {
-    const lv = this.lvl(skill);
-    let sp = 1 + Math.min(1, 0.01 * Math.max(0, lv - a.lvl));
+    let sp = 1 + Math.min(1, 0.01 * Math.max(0, this.lvl(skill) - a.lvl));
     const ty = SKILL[skill].type;
     if (ty === 'gather') sp *= 1 + this.sp('gspd');
     if (ty === 'make') sp *= 1 + this.sp('mspd');
@@ -220,66 +298,46 @@ export class Game {
       if (rt.dead <= 0) { rt.hp = this.maxHp(); this.spawn(); }
       return;
     }
-    if (!rt.mon) {
-      rt.respawn -= dt;
-      if (rt.respawn <= 0) this.spawn();
-      return;
-    }
+    if (!rt.mon) { rt.respawn -= dt; if (rt.respawn <= 0) this.spawn(); return; }
     const m = rt.mon;
+    const p = this.profile();
     rt.atkT += dt;
-    const iv = this.atkInterval();
-    while (rt.atkT >= iv && rt.mon) {
-      rt.atkT -= iv;
-      this.playerAttack(m);
-    }
+    const iv = C.interval(p);
+    while (rt.atkT >= iv && rt.mon) { rt.atkT -= iv; this.playerAttack(m, p); }
     if (!rt.mon) return;
     rt.monT += dt;
-    while (rt.monT >= m.interval && rt.mon && rt.dead <= 0) {
-      rt.monT -= m.interval;
-      this.monsterAttack(m);
-    }
+    while (rt.monT >= m.interval && rt.mon && rt.dead <= 0) { rt.monT -= m.interval; this.monsterAttack(m, p); }
   }
-  playerAttack(m) {
+  playerAttack(m, p) {
     const rt = this.rt;
-    const st = this.style();
-    let dmg = 0;
-    let crit = false;
-    if (Math.random() < hitChance(this.atkRoll(st), this.monDefRoll(m, st))) {
-      dmg = 1 + Math.floor(Math.random() * this.maxHit(st));
-      if (Math.random() < Math.min(0.5, this.sp('crit'))) { dmg = Math.floor(dmg * CRIT_MULT); crit = true; }
-    }
+    const cap = C.cap(p, monDef(m, p.style));
+    const lo = C.minHit(p, cap);
+    let dmg = lo + Math.floor(Math.random() * (cap - lo + 1));
     dmg = Math.min(dmg, rt.monHp);
     rt.monHp -= dmg;
-    this.fx('mon', dmg ? (crit ? '치명 ' : '') + dmg : '빗나감', crit ? 'crit' : dmg ? 'hit' : 'miss');
+    this.fx('mon', String(dmg), 'hit');
     if (dmg > 0) {
-      if (this.sp('ls') > 0) rt.hp = Math.min(this.maxHp(), rt.hp + dmg * this.sp('ls'));
-      this.combatXp(dmg);
+      const ls = C.ls(p);
+      if (ls > 0 && rt.hp < C.maxHp(p)) rt.hp = Math.min(C.maxHp(p), rt.hp + Math.max(1, Math.ceil(dmg * ls)));
+      this.combatXp(dmg, p.style);
     }
     if (rt.monHp <= 0) this.kill(m);
   }
-  combatXp(dmg) {
-    const x = dmg * 4 * (1 + this.sp('xp'));
-    const st = this.style();
+  // 전투 경험치: 근접은 공격 · 힘 모두, 원거리 · 마법은 자기 스킬 / 방어는 항상 70%
+  combatXp(dmg, st) {
+    const x = dmg * 0.45;
     if (st === 'ranged') this.addXp('rng', x);
     else if (st === 'magic') this.addXp('mag', x);
-    else if (this.s.meleeMode === 'shared') { this.addXp('atk', x / 3); this.addXp('str', x / 3); this.addXp('def', x / 3); }
-    else this.addXp(this.s.meleeMode, x);
-    this.addXp('hp', x / 3);
+    else { this.addXp('atk', x); this.addXp('str', x); }
+    this.addXp('def', x * 0.7);
   }
-  monsterAttack(m) {
+  monsterAttack(m, p) {
     const rt = this.rt;
     let dmg = 0;
-    if (Math.random() < hitChance(this.monAtkRoll(m), this.defRoll(m.style))) {
-      dmg = 1 + Math.floor(Math.random() * monMaxHit(m));
-      dmg = Math.max(0, Math.round(dmg * (1 - Math.min(0.8, this.sp('dr'))) * (1 - this.protectOf(m.style))));
-    }
+    const hits = Math.random() < C.mHit(p, m);
+    if (hits) dmg = C.mDmg(p, m, MON_ROLL[0] + Math.random() * (MON_ROLL[1] - MON_ROLL[0]));
     rt.hp -= dmg;
-    this.fx('hero', dmg ? '-' + dmg : '막음', dmg ? 'hurt' : 'miss');
-    if (dmg > 0 && this.sp('reflect') > 0 && rt.mon) {
-      const r = Math.min(rt.monHp, Math.max(1, Math.round(dmg * this.sp('reflect'))));
-      rt.monHp -= r;
-      if (rt.monHp <= 0) { this.kill(m); return; }
-    }
+    this.fx('hero', !hits ? '빗나감' : dmg ? '-' + dmg : '0', dmg ? 'hurt' : 'miss');
     this.autoEat();
     if (rt.hp <= 0) {
       rt.hp = 0;
@@ -299,31 +357,29 @@ export class Game {
       this.rt.hp = Math.min(max, this.rt.hp + ITEMS[food].heal * (1 + this.sp('heal')));
     }
   }
+  dropMult() { return 1; }
   kill(m) {
     const s = this.s;
     s.stats.kills++;
     s.kills ||= {};
     s.kills[m.id] = (s.kills[m.id] || 0) + 1;
-    const t = m.z;
-    const lootMul = 1 + this.sp('drop');
+    const mul = this.dropMult();
     const got = [];
-    const add = (id, n = 1) => { this.give(id, n); got.push(ITEMS[id].icon); };
-    add('bone' + t, m.boss ? 3 : 1);
-    s.coins += Math.round((m.lvl * 2 + 3) * (0.5 + Math.random()) * (m.boss ? 6 : 1));
-    if (Math.random() < 0.18 * lootMul) add((Math.random() < 0.5 ? 'hide' : 'cloth') + t, m.boss ? 3 : 1);
-    if (Math.random() < 0.08 * lootMul) add('raw' + t);
-    // 장비: 일반 2.5% · 보스 30% (장신구 · 망토는 드롭 전용)
-    if (Math.random() < (m.boss ? 0.3 : 0.025) * lootMul) {
-      const types = Object.keys(GEAR);
-      const ty = types[Math.floor(Math.random() * types.length)];
-      add(ty + t);
-      this.toast(`📦 ${ITEMS[ty + t].name} 획득!`, 'loot');
+    for (const l of m.loot) {
+      if (!l.fixed && Math.random() >= Math.min(1, l.p * mul)) continue;
+      const n = l.a + Math.floor(Math.random() * (l.b - l.a + 1));
+      this.give(l.id, n);
+      got.push(ITEMS[l.id].icon);
+      const it = ITEMS[l.id];
+      if (it.kind === 'gear' || it.id === 'gem') this.toast(`📦 ${it.name} 획득!`, 'loot');
+      else if (l.id.startsWith('gem')) this.toast(`💎 ${it.name} 획득!`, 'loot');
     }
+    s.coins += m.coins[0] + Math.floor(Math.random() * (m.coins[1] - m.coins[0] + 1));
     if (m.boss) {
-      const pet = PETS.find((p) => p.src === 'boss:' + m.z);
-      if (pet) this.tryPet(pet, lootMul);
+      const pet = PETS.find((x) => x.src === 'boss:' + m.z);
+      if (pet) this.tryPet(pet, mul);
     }
-    this.fx('mon', got.join(''), 'loot');
+    this.fx('mon', got.slice(0, 5).join(''), 'loot');
     this.rt.mon = null;
     this.rt.respawn = RESPAWN;
   }
@@ -341,14 +397,14 @@ export class Game {
     const a = (ACTIONS[A.skill] || []).find((x) => x.id === A.act);
     if (!a) { this.stop(); return; }
     if (a.in && !this.hasInputs(a)) { this.toast('재료가 떨어져 멈췄습니다', 'bad'); this.stop(); return; }
-    const t = this.actionTime(A.skill, a);
-    this.rt.prog += dt / t;
+    this.rt.prog += dt / this.actionTime(A.skill, a);
     while (this.rt.prog >= 1) {
       this.rt.prog -= 1;
       if (a.in && !this.hasInputs(a)) { this.stop(); return; }
       for (const [id, n] of Object.entries(a.in || {})) this.give(id, -n);
       if (a.burn && Math.random() < this.burnChance(a)) this.give('burnt', 1);
       else for (const [id, n] of Object.entries(a.out || {})) this.give(id, n);
+      if (a.gem && Math.random() < 0.01) { this.give(a.gem, 1); this.toast(`💎 ${ITEMS[a.gem].name} 발견!`, 'loot'); }
       this.addXp(A.skill, this.actionXp(A.skill, a));
       this.s.stats.actions++;
       const pet = PETS.find((p) => p.src === A.skill);
@@ -370,28 +426,23 @@ export class Game {
   // ---------- 진행 ----------
   update(dt) {
     const rt = this.rt;
-    // 자연 회복: 10초마다 최대 체력 1% + 기도 · 펫 회복
     rt.regenT += dt;
-    if (rt.regenT >= 1) {
+    while (rt.regenT >= 1) {
       rt.regenT -= 1;
-      if (rt.dead <= 0) rt.hp = Math.min(this.maxHp(), rt.hp + this.maxHp() * (0.01 / 10 + this.sp('regen')));
+      if (rt.dead <= 0) rt.hp = Math.min(this.maxHp(), rt.hp + this.maxHp() * 0.001);
     }
     const A = this.s.activity;
-    if (!A) return;
-    if (A.type === 'combat') this.combatTick(dt);
-    else if (A.type === 'skill') this.skillTick(dt);
-    else if (A.type === 'bury') this.buryTick(dt);
-    for (const f of rt.fx) f.t += dt;
-    rt.fx = rt.fx.filter((f) => f.t < 1);
+    if (A) {
+      if (A.type === 'combat') this.combatTick(dt);
+      else if (A.type === 'skill') this.skillTick(dt);
+      else if (A.type === 'bury') this.buryTick(dt);
+    }
   }
-  // 오프라인: 1초 단위로 그대로 진행 (최대 12시간)
+  // 오프라인: 1초 단위로 진행 (최대 12시간, 배속 미적용)
   offline(sec) {
     sec = Math.min(sec, OFFLINE_CAP);
     if (sec < 30 || !this.s.activity) return null;
-    const xp0 = { ...this.s.xp };
-    const bank0 = { ...this.s.bank };
-    const c0 = this.s.coins;
-    const k0 = this.s.stats.kills;
+    const xp0 = { ...this.s.xp }, bank0 = { ...this.s.bank }, c0 = this.s.coins, k0 = this.s.stats.kills;
     this.quiet = true;
     for (let t = 0; t < sec; t += 1) this.update(1);
     this.quiet = false;
@@ -400,34 +451,30 @@ export class Game {
     return { sec, xp, items, coins: this.s.coins - c0, kills: this.s.stats.kills - k0 };
   }
 
-  // ---------- 화면 효과 ----------
   fx(at, text, kind) {
     if (this.quiet) return;
     if (!this.s.showNums && kind !== 'loot') return;
     this.rt.fx.push({ at, text, kind, t: 0, x: Math.random() * 40 - 20 });
     if (this.rt.fx.length > 30) this.rt.fx.shift();
   }
-  toast(text, kind = '') {
-    if (this.quiet) return;
-    this.rt.log.push({ text, kind });
-  }
+  toast(text, kind = '') { if (!this.quiet) this.rt.log.push({ text, kind }); }
 }
 
 // ---------- 저장 ----------
 export function loadState() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    return hydrate(JSON.parse(raw));
+    return raw ? hydrate(JSON.parse(raw)) : null;
   } catch (e) { return null; }
 }
 export function hydrate(o) {
   const base = newState();
   if (!o || typeof o !== 'object') return base;
-  const s = { ...base, ...o, xp: { ...base.xp, ...(o.xp || {}) }, stats: { ...base.stats, ...(o.stats || {}) } };
+  const s = { ...base, ...o, xp: { ...base.xp, ...(o.xp || {}) }, stats: { ...base.stats, ...(o.stats || {}) }, v: SAVE_VERSION };
   s.bank = Object.fromEntries(Object.entries(o.bank || {}).filter(([id, n]) => ITEMS[id] && n > 0));
-  s.equip = Object.fromEntries(Object.entries(o.equip || {}).filter(([sl, id]) => ITEMS[id]?.slot === sl));
+  s.equip = Object.fromEntries(Object.entries(o.equip || base.equip).filter(([sl, id]) => ITEMS[id]?.slot === sl));
   s.pets = (o.pets || []).filter((p) => PET[p]);
+  if (!SPEEDS.includes(s.speed)) s.speed = 1;
   return s;
 }
 export function saveState(s) {
@@ -440,4 +487,3 @@ export function importSave(txt) {
   const json = t.startsWith('{') ? t : decodeURIComponent(escape(atob(t.replace(/[^A-Za-z0-9+/=]/g, ''))));
   return hydrate(JSON.parse(json));
 }
-export { TIERS, ZONES };
