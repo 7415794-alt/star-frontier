@@ -69,11 +69,11 @@ export const CAPS = { ls: 0.3, dr: 0.6 };
 export const SPECIAL_NAMES = {
   atkPct: '공격', strPct: '힘', defPct: '방어', rngPct: '원거리', magPct: '마법', ls: '생명력 흡수', dr: '피해 감소',
   gspd: '채집 속도', gxp: '채집 경험치', cspd: '제작 속도', pspd: '생산 속도', mxp: '제작 · 생산 경험치', heal: '음식 회복량', burn: '음식 안 태울 확률',
-  drop: '드롭률', hpTick: '틱당 체력 회복', thief: '도둑질 성공률', bossDmg: '보스 피해', sxp: '생활 경험치', dxp: '신성 경험치',
+  drop: '드롭률', hpTick: '체력 재생 (3초마다)', thief: '도둑질 성공률', bossDmg: '보스 피해', sxp: '생활 경험치', dxp: '신성 경험치',
 };
 // 값이 % 가 아닌 보너스 (틱당 회복은 고정 수치)
 export const FLAT_SP = new Set(['hpTick']);
-export const COMBAT_TICK = 0.6;
+export const COMBAT_TICK = 3; // 체력 재생(hpTick)이 들어가는 주기 (초)
 // 사냥꾼 숙련: 같은 몬스터를 잡은 수에 따라 그 몬스터 상대로 보너스 (단계마다 드롭률 +2% · 피해 +2% · 방어 +1.6%)
 export const HUNT_TIERS = [25, 100, 300, 1000, 3000];
 export const HUNT_NAMES = ['없음', '견습 사냥꾼', '사냥꾼', '숙련 사냥꾼', '명사냥꾼', '전설의 사냥꾼'];
@@ -325,6 +325,21 @@ function lootTable(style, t, i, boss) {
   return [...seen.values()];
 }
 // 몬스터 능력치: 레벨에 따라 체력 · 공격(명중) · 힘(피해) · 방어가 오름. 상성: 약점 방식엔 방어 x0.5, 같은 방식엔 x1.4
+// 몬스터 공격 · 힘: 같은 레벨 · 같은 단계 장비(희귀 기준) 플레이어를 기준으로 맞춤
+//  - 같은 레벨: 명중 약 44% · 방어로 피해 약 50% 감소 · 흡혈 · 재생을 빼고도 초당 체력 약 1.2%씩 깎임 (음식 필요)
+//  - 20레벨 아래: 거의 피해 없음 / 10~15레벨 위: 음식 없이는 금방 쓰러짐
+export const refDef = (L) => (L <= 100 ? 40 + 4.14 * L ** 1.35 : 2115 * (L / 100) ** 1.9); // 그 레벨 플레이어의 보통 방어
+const refHeal = (L) => (L <= 100 ? 0.028 * L : 2.8 * (L / 100) ** 1.65); // 그 레벨 플레이어의 보통 흡혈 · 재생 (초당 체력 %)
+const refNet = (L) => Math.min(1.2, 0.5 + 0.025 * L); // 회복을 넘어서 깎이는 양 (초당 체력 %), 초반은 순하게
+export const MON_HIT = 0.8;
+export function monAtkStr(L, b = 1) {
+  let hp = 100; for (let l = 1; l <= Math.round(L); l++) hp += l <= 50 ? 5 : 5 + Math.ceil((l - 50) / 8); // 그 레벨 기본 체력
+  return {
+    atk: Math.round(MON_HIT * 0.43 * refDef(L) * b),
+    // 초반(30레벨 전)은 장비가 없어도 버틸 수 있게 더 약하게
+    str: Math.round(((refHeal(L) + refNet(L)) * hp / 4.16) * b * Math.min(1, 0.3 + 0.7 * (L - 1) / 30)),
+  };
+}
 const MSTAT = (L, a, k, e, e2) => (L <= 100 ? a + k * L ** e : (a + k * 100 ** e) * (L / 100) ** e2);
 function makeMonster(name, icon, L, style, boss, z, i, t = z) {
   const b = boss ? 1.25 : 1;
@@ -334,8 +349,7 @@ function makeMonster(name, icon, L, style, boss, z, i, t = z) {
   return {
     id: `m${z}_${i}`, name, icon, lvl: L, style, boss, z, t,
     hp: Math.round(MSTAT(L, 15, 0.0516, 2.45, 2.0) * (boss ? 3 : 1)),
-    atk: Math.round(MSTAT(L, 2, 0.058, 1.92, 1.75) * b),
-    str: Math.round(MSTAT(L, 2, 0.137, 1.71, 1.6) * b),
+    ...monAtkStr(L, b),
     def: Math.round(MSTAT(L, 1, 0.176, 1.45, 1.45) * b),
     defMul,
     interval: Math.round(([2.6, 2.4, 3.0][i % 3] + (boss ? 0.2 : 0)) * 10) / 10,
@@ -504,7 +518,10 @@ export const baseHp = (defLvl) => { let hp = 100; for (let l = 1; l <= defLvl; l
 // 적 명중률: 적 공격 / (적 공격 + 내 방어 x 0.43)
 export const penChance = (mAtk, def) => mAtk / (mAtk + Math.max(0, def) * 0.43);
 // 방어 효율: 받는 피해를 이만큼 줄임
-export const defEff = (def, mStr) => (Math.max(0, def) * 0.25) / (Math.max(0, def) * 0.25 + 100 + mStr * 0.2);
+// 방어 효율: 내 방어 대 적 공격 비율 (같은 레벨이면 약 50%)
+export const defEff = (def, mAtk) => (Math.max(0, def) * 0.43) / (Math.max(0, def) * 0.43 + 1.25 * Math.max(1, mAtk));
+// 전투력 계산용 (몬스터와 무관한 순수 강함, 예전 기준 그대로)
+export const defEffStd = (def, mStr) => (Math.max(0, def) * 0.25) / (Math.max(0, def) * 0.25 + 100 + mStr * 0.2);
 // 몬스터 피해 굴림: 힘 x 0.42 ~ 0.58, 최저 피해 = 힘 x 0.04
 export const MON_ROLL = [0.42, 0.58];
 export const monFloor = (m) => Math.max(1, Math.floor(m.str * 0.04));

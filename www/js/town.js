@@ -41,7 +41,7 @@ export const TALENTS = [
   { id: 'drop', n: '드롭률', icon: '🍀', fx: { drop: 0.0025 }, max: 20 },
   { id: 'thief', n: '도둑질 성공률', icon: '🎭', fx: { thief: 0.005 }, max: 20 },
   { id: 'boss', n: '보스 피해', icon: '⚡', fx: { bossDmg: 0.005 }, max: 20 },
-  { id: 'regen', n: '틱당 체력 회복', icon: '💚', fx: { hpTick: 1 }, max: 20 },
+  { id: 'regen', n: '체력 재생 (3초마다)', icon: '💚', fx: { hpTick: 2 }, max: 20 },
 ];
 const talentCost = (L) => 1 + Math.floor(L / 5);
 

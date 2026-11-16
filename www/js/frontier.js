@@ -1,5 +1,5 @@
 // 별무리 개척기 — 5차: 탄약(화살 · 룬) · 스킬 보스 · 세계 보스 · 초희귀 드롭 · 기도서 · 펫 호루라기 · 보스 축하 · 처치 효과
-import { ITEMS, TIERS, SKILL, ACTIONS, PETS, PRAYERS, TOMES, GEAR, STYLES, STATS, gearId, rollRarity, monDef, penChance, defEff, MON_ROLL, monFloor, COMBAT_TICK } from './data.js';
+import { ITEMS, TIERS, SKILL, ACTIONS, PETS, PRAYERS, TOMES, GEAR, STYLES, STATS, gearId, rollRarity, monDef, penChance, defEff, MON_ROLL, monFloor, COMBAT_TICK, monAtkStr } from './data.js';
 import { Game, C } from './game.js';
 import { UI } from './ui.js';
 
@@ -44,7 +44,7 @@ export function wbMonster(L, style) {
   return {
     id: 'wb', name: '별을 삼키는 고래', icon: '🐋', lvl: L, style, boss: true, z: -1, weak: WEAK[style], defMul, interval: 3.2,
     hp: Infinity,
-    atk: Math.round((2 + 0.058 * L ** 1.92) * b), str: Math.round((2 + 0.137 * L ** 1.71) * b), def: Math.round((1 + 0.176 * L ** 1.45) * b),
+    ...((o) => ({ atk: o.atk, str: Math.round(o.str * 0.8) }))(monAtkStr(L, b)), def: Math.round((1 + 0.176 * L ** 1.45) * b),
   };
 }
 export const wbStyle = () => ROT[Math.floor(Date.now() / 86400000) % 3];

@@ -1,7 +1,7 @@
 // 별무리 개척기 — 게임 로직
 import {
   SKILLS, SKILL, ITEMS, SLOT_IDS, STAT_IDS, CAPS, MONSTER, ACTIONS, PRAYERS, PETS, PET, SPELLS, SPEEDS,
-  levelOf, XP_TABLE, TIERS, RARITY, baseHp, COMBAT_TICK, HUNT_PER, huntTier, rollRarity, gearId, penChance, defEff, MON_ROLL, monFloor, monDef, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
+  levelOf, XP_TABLE, TIERS, RARITY, baseHp, COMBAT_TICK, HUNT_PER, huntTier, rollRarity, gearId, penChance, defEff, defEffStd, MON_ROLL, monFloor, monDef, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
 } from './data.js';
 
 export const SAVE_KEY = 'star-frontier-save-v1';
@@ -88,7 +88,7 @@ export const C = {
   // 몬스터 공격: 명중률은 방어로 낮춤 / 맞으면 피해를 방어 효율 · 피해 감소만큼 줄임
   mHit: (p, m) => penChance(m.atk, C.defVs(p, m)),
   mDmg: (p, m, r) => {
-    const raw = Math.max(monFloor(m), Math.floor(m.str * r * (1 - defEff(C.defVs(p, m), m.str))));
+    const raw = Math.max(monFloor(m), Math.floor(m.str * r * (1 - defEff(C.defVs(p, m), m.atk))));
     return Math.max(0, Math.floor(raw * (1 - C.dr(p))));
   },
   vs: (p, m) => {
@@ -114,7 +114,7 @@ export const C = {
   power: (p) => {
     const off = C.avgHit(p, 0) / C.interval(p);
     const d = C.eff(p, 'def');
-    const taken = penChance(STD_ATK, d) * (1 - defEff(d, STD_ATK)) * (1 - C.dr(p));
+    const taken = penChance(STD_ATK, d) * (1 - defEffStd(d, STD_ATK)) * (1 - C.dr(p));
     const ehp = (C.maxHp(p) / Math.max(0.02, taken)) * (1 + C.ls(p) * 3);
     return Math.sqrt(Math.max(0, off) * ehp);
   },
