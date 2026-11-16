@@ -772,6 +772,7 @@ U.gearToolsCard = function (p) {
 
 // ---------- 의뢰: 항상 무작위 30개 · 조건을 채우면 자동 완료 → 새 의뢰 ----------
 const RQ_N = 30;
+const RQ_LIFE = 5 * 60 * 1000; // 실제 시간 5분 (배속과 상관없음) 안에 못 끝내면 새 의뢰로 교체
 const QUEST_PETS = () => PETS.filter((x) => x.src === 'quest');
 P.rqInit = function () {
   this.s.rq ||= { list: [], seq: 0, done: 0 };
@@ -800,6 +801,7 @@ P.rqGen = function () {
   q.z = z.n;
   q.t = t;
   q.reward = this.rqReward(t);
+  q.at = Date.now();
   return q;
 };
 // 보상: 💰 · 공훈 + (전설 이상 장비 / 의뢰 펫 / 기도서 / 귀한 묶음) 중 하나
@@ -838,8 +840,11 @@ P.rqClaim = function (q) {
 P.rqTick = function () {
   this.rqInit();
   const L = this.s.rq.list;
+  const now = Date.now();
   for (let i = 0; i < L.length; i++) {
-    if (this.rqProg(L[i]) >= L[i].qty) { this.rqClaim(L[i]); L[i] = this.rqGen(); }
+    if (this.rqProg(L[i]) >= L[i].qty) { this.rqClaim(L[i]); L[i] = this.rqGen(); continue; }
+    L[i].at ||= now;
+    if (now - L[i].at >= RQ_LIFE) { L[i] = this.rqGen(); this.s.rq.expired = (this.s.rq.expired || 0) + 1; }
   }
 };
 // 예전 의뢰(받기 · 완료) 대신 새 방식으로
@@ -851,17 +856,17 @@ U.townFns = { ...U.townFns, quest: townRq };
 function townRq(ui, p, g, s) {
   g.rqInit();
   p.appendChild(h('div', 'card', `<b>📜 의뢰판</b> <span class="mut">완료 ${fmt(s.rq.done)}개</span>
-    <div class="mut">의뢰 ${RQ_N}개가 항상 붙어 있고, 조건을 채우면 저절로 완료되고 새 의뢰가 붙습니다 · 내 전투 레벨로 갈 수 있는 높은 지역에서 나옵니다 · 보상: 💰 · 공훈(재능) · 전설 이상 장비 / 의뢰 전용 펫 / 기도서 / 귀한 묶음</div>`));
+    <div class="mut">의뢰 ${RQ_N}개가 항상 붙어 있고, 조건을 채우면 저절로 완료되고 새 의뢰가 붙습니다 · 실제 시간 5분(배속과 상관없음) 안에 못 끝낸 의뢰는 새 의뢰로 바뀝니다 · 내 전투 레벨로 갈 수 있는 높은 지역에서 나옵니다 · 보상: 💰 · 공훈(재능) · 전설 이상 장비 / 의뢰 전용 펫 / 기도서 / 귀한 묶음</div>`));
   const rows = s.rq.list.map((q) => ({ q, r: Math.min(1, g.rqProg(q) / q.qty) })).sort((a, b) => b.r - a.r);
   for (const { q, r } of rows) {
     const pr = Math.min(q.qty, g.rqProg(q));
     p.appendChild(h('div', 'row', `<div class="ic">${q.icon}</div><div class="info"><div class="nm">${q.name} <span class="mut">${q.z}</span></div>
-      <div class="mut">${q.desc} · ${fmt(pr)} / ${fmt(q.qty)} (${pct(r, 0)})</div><div class="lvbar"><div style="width:${pct(r)}"></div></div>
+      <div class="mut">${q.desc} · ${fmt(pr)} / ${fmt(q.qty)} (${pct(r, 0)}) · <span class="rqt" data-at="${q.at || Date.now()}">⏳ ${mmss(Math.max(0, RQ_LIFE - (Date.now() - (q.at || Date.now()))) / 1000)}</span></div><div class="lvbar"><div style="width:${pct(r)}"></div></div>
       <div class="mut sp">${g.rqRewardText(q.reward)}</div></div>`));
   }
 }
 const _sig4 = U.sigX;
-U.sigX = function () { const s = this.g.s; return [..._sig4.call(this), s.rq?.done, s.autoCombine, s.pop]; };
+U.sigX = function () { const s = this.g.s; return [..._sig4.call(this), s.rq?.done, s.rq?.expired, s.autoCombine, s.pop]; };
 
 // ---------- 전리품 검색: 아이템 이름으로 떨어뜨리는 몬스터 찾기 ----------
 let LOOT_IDX = null;
@@ -942,3 +947,13 @@ const _toastK = P.toast;
 P.toast = function (text, kind = '') { if (this._inKill && (kind === 'loot' || /^(📦|💎|🔄)/u.test(text))) return; return _toastK.call(this, text, kind); };
 const _killK = P.kill;
 P.kill = function (m) { this._inKill = true; try { return _killK.call(this, m); } finally { this._inKill = false; } };
+
+// 의뢰 남은 시간: 1초마다 숫자만 바꿈
+const _fx5 = U.frameX;
+U.frameX = function (act, A) {
+  _fx5.call(this, act, A);
+  if (this.tab !== 'town' || performance.now() - (this._rqtT || 0) < 1000) return;
+  this._rqtT = performance.now();
+  const now = Date.now();
+  document.querySelectorAll('.rqt').forEach((e) => { e.textContent = `⏳ ${mmss(Math.max(0, RQ_LIFE - (now - +e.dataset.at)) / 1000)}`; });
+};
