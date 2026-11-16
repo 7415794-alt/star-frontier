@@ -41,7 +41,7 @@ export class UI {
     document.addEventListener('change', (e) => { if (e.target.tagName === 'SELECT') setTimeout(() => e.target.blur(), 0); });
     $('#spdBtn').addEventListener('click', () => { this.g.cycleSpeed(); this.g.toast(`⏩ 게임 속도 x${this.g.speed()}`); });
     document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { this.tab = b.dataset.tab; this.render(true); }));
-    $('#act').addEventListener('click', (e) => { if (e.target.id !== 'stopBtn') return; if (this.dispAct?.()?.bg) { this.g.s.bgHunt = false; this.g.rt.mon = null; this.g.toast('함께 사냥을 멈췄습니다 (스킬은 계속)'); } else this.g.stop(); });
+    $('#act').addEventListener('click', (e) => { if (e.target.id !== 'stopBtn') return; const d = this.dispAct?.(); if (d?.type === 'combat' && this.g.stopCombat) { this.g.stopCombat(); this.g.toast('전투를 멈췄습니다 (스킬은 그대로)'); } else { this.g.stop(); if (this.g.s.hunt) this.g.toast('스킬을 멈췄습니다 (전투는 그대로)'); } });
     this.render(true);
     if (!game.s.tut) {
       game.s.tut = true;
@@ -101,7 +101,7 @@ export class UI {
       $('.hpP > div', act).style.width = pct(Math.max(0, rt.hp) / mx, 1);
       $('.hpP span', act).textContent = `${fmt(Math.max(0, rt.hp))} / ${fmt(mx)}`;
       $('.tmP > div', act).style.width = pct(Math.min(1, rt.atkT / g.atkInterval()), 1);
-      const mm = g.s.activity && MONSTER_OF(A.mon);
+      const mm = MONSTER_OF(A.mon);
       $('.hpM > div', act).style.width = m ? pct(Math.max(0, rt.monHp) / m.hp, 1) : '0%';
       $('.hpM span', act).textContent = m ? `${fmt(rt.monHp)} / ${fmt(m.hp)}` : rt.dead > 0 ? `부활까지 ${rt.dead.toFixed(1)}초` : '다음 몬스터…';
       $('.tmM > div', act).style.width = m ? pct(Math.min(1, rt.monT / m.interval), 1) : '0%';
@@ -232,7 +232,7 @@ export class UI {
     const zn = ZONES[this.zone];
     for (const m of zn.mons) {
       const v = g.vs(m);
-      const on = s.activity?.type === 'combat' && s.activity.mon === m.id;
+      const on = s.hunt === m.id;
       const danger = v.killsPerLife < 3;
       const r = h('div', 'row' + (on ? ' on' : ''), `
         <div class="ic">${m.icon}</div>
@@ -241,7 +241,7 @@ export class UI {
         <div class="mut sp">${this.huntLine(m)}</div>
         <div class="mut">내 피해 ${v.min}~${v.mh} · 처치 약 ${time(v.ttk)} · 적 명중 ${pct(v.mHit)} · 최대 ${v.mMax}${danger ? ' <span style="color:#f87171">⚠ 위험</span>' : ''} · 처치 ${fmt(s.kills?.[m.id] || 0)}</div></div>
         <button class="btn ${on ? '' : 'pri'}">${on ? '■' : '⚔ 싸우기'}</button>`);
-      $('button', r).addEventListener('click', (e) => { e.stopPropagation(); if (on) g.stop(); else g.startCombat(m.id); });
+      $('button', r).addEventListener('click', (e) => { e.stopPropagation(); if (on) g.stopCombat(); else g.startCombat(m.id); });
       $('.info', r).addEventListener('click', () => this.lootModal(m));
       $('.ic', r).addEventListener('click', () => this.lootModal(m));
       p.appendChild(r);
@@ -261,7 +261,8 @@ export class UI {
   recCard(p, zn) {
     const g = this.g, s = g.s;
     const A = s.activity;
-    const m = A?.type === 'combat' ? MONSTER_OF(A.mon) : zn.mons[0];
+    void A;
+    const m = s.hunt ? MONSTER_OF(s.hunt) : zn.mons[0];
     const r = g.analyze(m);
     const list = this.recMode === 'real' ? r.real : r.pow;
     const key = this.recMode === 'real' ? 'real' : 'power';

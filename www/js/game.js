@@ -418,7 +418,7 @@ export class Game {
       const food = this.foods()[0];
       if (!food) {
         if (!rt.noFood) { rt.noFood = true; this.toast('⚠ 먹을 음식이 없습니다!', 'bad'); }
-        if (s.stopNoFood && rt.hp < max * 0.3 && s.activity?.type === 'combat') { this.toast('음식이 없어 전투를 멈췄습니다', 'bad'); this.stop(); }
+        if (s.stopNoFood && rt.hp < max * 0.3 && s.hunt) { this.toast('음식이 없어 전투를 멈췄습니다', 'bad'); this.stopCombat(); }
         return;
       }
       rt.noFood = false;
@@ -628,7 +628,7 @@ export class Game {
   // 오프라인: 1초 단위로 진행 (최대 12시간, 배속 미적용)
   offline(sec) {
     sec = Math.min(sec, OFFLINE_CAP);
-    if (sec < 30 || !this.s.activity) return null;
+    if (sec < 30 || (!this.s.activity && !this.s.hunt)) return null;
     const xp0 = { ...this.s.xp }, bank0 = { ...this.s.bank }, c0 = this.s.coins, k0 = this.s.stats.kills;
     this.quiet = true;
     for (let t = 0; t < sec; t += 1) this.update(1);

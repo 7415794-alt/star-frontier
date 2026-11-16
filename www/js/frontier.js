@@ -604,7 +604,7 @@ P.autoQuest = function () {
   for (const id of Object.keys(Q.active)) this.claimQuest(id);
   const open = Object.keys(Q.active).length;
   if (open >= 3) return;
-  const mon = this.s.activity?.type === 'combat' ? this.s.activity.mon : this.s.huntMon;
+  const mon = this.s.hunt || this.s.huntMon;
   const cand = QUESTS.filter((q) => Q.active[q.id] == null && !Q.done.includes(q.id) && this.questOpen(q));
   // 지금 잡는 몬스터 → 전투 레벨 → 나머지 토벌 → 납품 순서
   const score = (q) => (q.target === mon ? 0 : q.type === 'clvl' ? 1 : q.type === 'kill' ? 2 : 3);
@@ -1282,19 +1282,6 @@ P.rqInit = function () {
   _rqInitX.call(this);
   for (const q of this.s.rq.list) if ((q.reward?.gear && !ITEMS[q.reward.gear]) || Object.keys(q.reward?.items || {}).some((id) => !ITEMS[id])) q.reward = this.rqReward(q.t ?? 0);
 };
-// 스킬 재료 · 뼈가 떨어져 스킬이 멈추면, 함께 하던 사냥은 계속 (쉬는 중으로 넘어가지 않게)
-for (const fn of ['skillTick', 'buryTick']) {
-  const o = P[fn];
-  P[fn] = function (dt) {
-    const prev = this.s.activity;
-    const r = o.call(this, dt);
-    if (prev && !this.s.activity && this.s.bgHunt !== false && MONSTER[this.s.huntMon]) {
-      this.startCombat(this.s.huntMon);
-      this.toast(`재료가 떨어져 스킬을 멈추고 ${MONSTER[this.s.huntMon].name} 사냥을 계속합니다`, 'info');
-    }
-    return r;
-  };
-}
 // 화면을 누르거나 값을 바꾸면 바로 다시 그림 (평소에는 1.2초 간격)
 const _pbX = U.panelBusy;
 U.panelBusy = function () {
@@ -1314,3 +1301,53 @@ U.styleCard = function (p) {
   c.querySelector('.nt').addEventListener('click', () => { s.numTake = s.numTake === false; });
   p.appendChild(c);
 };
+
+// ====================== 전투와 스킬 완전 분리 ======================
+// 전투(s.hunt)와 스킬(s.activity)은 따로 진행 — 하나를 멈추거나 바꿔도 다른 하나는 그대로
+P.bgHunting = function () { return !!(this.s.hunt && MONSTER[this.s.hunt] && !this.s.fight); };
+P.startCombat = function (monId) {
+  if (!MONSTER[monId]) return false;
+  if (this.s.fight) this.endFight('중단');
+  if (this.s.activity?.type === 'combat') this.s.activity = null;
+  this.s.hunt = monId;
+  this.s.huntMon = monId;
+  this.rt.mon = null;
+  this.rt.respawn = 0;
+  if (this.rt.dead <= 0) this.spawn();
+  return true;
+};
+P.stopCombat = function () { this.s.hunt = null; this.rt.mon = null; };
+// 스킬 멈춤 · 시작은 전투 몬스터를 건드리지 않음
+for (const fn of ['stop', 'startSkill', 'startBury']) {
+  const o = P[fn];
+  P[fn] = function (...a) { const m = this.rt.mon, hp = this.rt.monHp; const r = o.apply(this, a); if (this.s.hunt && m && !this.rt.mon) { this.rt.mon = m; this.rt.monHp = hp; } return r; };
+}
+// 예전 저장: 전투 중이었으면 전투 칸으로, 스킬 + 함께 사냥이었으면 둘 다 유지
+const _townInitSep = P.townInit;
+P.townInit = function () {
+  _townInitSep.call(this);
+  const s = this.s;
+  if (s.sepV === 1) return;
+  if (s.activity?.type === 'combat') { s.hunt = s.activity.mon; s.huntMon = s.activity.mon; s.activity = null; }
+  else if ((s.activity?.type === 'skill' || s.activity?.type === 'bury') && s.bgHunt !== false && MONSTER[s.huntMon]) s.hunt = s.huntMon;
+  s.sepV = 1;
+};
+// 위쪽 장면: 전투 탭은 전투, 스킬 탭은 스킬, 나머지 탭은 진행 중인 것
+U.dispAct = function () {
+  const g = this.g, s = g.s, A = s.activity && s.activity.type !== 'combat' ? s.activity : null;
+  const C = s.hunt && MONSTER[s.hunt] && !s.fight ? { type: 'combat', mon: s.hunt } : null;
+  if (s.fight) return A;
+  if (this.tab === 'combat') return C || A;
+  if (this.tab === 'skills') return A || C;
+  return A || C;
+};
+// 스킬 탭: 따로 진행 중인 전투 안내
+U.bgHuntCard = function (p) {
+  const g = this.g, s = g.s, m = MONSTER[s.hunt];
+  const c = h('div', 'card', m ? `⚔ 전투는 따로 진행 중: ${m.icon} ${m.name} (Lv ${m.lvl}) <button class="btn sm sc">■ 전투 멈춤</button><div class="mut">전투와 스킬은 서로 따로 움직입니다 · 스킬을 바꾸거나 멈춰도 전투는 계속됩니다</div>`
+    : '<span class="mut">⚔ 전투는 쉬는 중 · 전투 탭에서 몬스터를 고르면 스킬과 따로 함께 진행됩니다</span>');
+  c.querySelector('.sc')?.addEventListener('click', () => g.stopCombat());
+  p.appendChild(c);
+};
+const _sigSep = U.sigX;
+U.sigX = function () { return [..._sigSep.call(this), this.g.s.hunt]; };
