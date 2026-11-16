@@ -885,3 +885,60 @@ U.lootSearch = function (p) {
   show();
   p.appendChild(c);
 };
+
+// ====================== 뒤로가기 · 만지는 중 다시 그리기 멈춤 · 탭별 장면 · 처치 전리품 팝업 끄기 ======================
+// 뒤로가기: 열린 창 닫기 → 전투 탭으로 (앱은 꺼지지 않음)
+window.onAppBack = () => {
+  const ui = window.ui;
+  const m = document.getElementById('modal');
+  if (m && !m.classList.contains('hidden')) { m.classList.add('hidden'); return; }
+  if (document.activeElement?.blur) document.activeElement.blur();
+  if (ui && ui.tab !== 'combat') { ui.tab = 'combat'; return; }
+  ui?.g?.toast('나가려면 홈 버튼을 눌러 주세요 (게임은 계속 진행)');
+};
+// 예전 앱(이전 APK)용: 뒤로가기가 웹 기록을 먼저 되돌리도록 기록을 하나 쌓아 둠
+try {
+  history.pushState({ sf: 1 }, '');
+  window.addEventListener('popstate', () => { history.pushState({ sf: 1 }, ''); window.onAppBack(); });
+} catch (e) { /* 무시 */ }
+
+// 함께 사냥 중: 전투 탭에서는 전투 장면, 다른 탭에서는 스킬 장면
+U.dispAct = function () {
+  const g = this.g, A = g.s.activity;
+  if (this.tab === 'combat' && g.bgHunting && g.bgHunting()) return { type: 'combat', mon: g.s.huntMon, bg: true };
+  return A;
+};
+// 손가락으로 스크롤 · 끌기 중이면 0.8초 동안 화면을 다시 그리지 않음 (지역 칩이 옆으로 안 넘어가던 문제)
+U.panelBusy = function () {
+  if (this._busyHooked) return;
+  const p = document.getElementById('panel');
+  if (!p) return;
+  this._busyHooked = true;
+  const busy = () => { this._busy = performance.now() + 800; };
+  for (const ev of ['touchmove', 'wheel']) p.addEventListener(ev, busy, { passive: true });
+  p.addEventListener('scroll', busy, { passive: true, capture: true });
+  p.addEventListener('touchstart', () => { this._busy = performance.now() + 400; }, { passive: true });
+};
+// 다시 그려도 가로 · 안쪽 스크롤 위치 그대로
+U.saveScroll = function () {
+  const p = document.getElementById('panel');
+  return [...p.querySelectorAll('.tstrip, .lsr, .ltbl')].map((e) => [e.className, e.scrollLeft, e.scrollTop, e.closest('.zpick') ? this.zone : null]);
+};
+U.loadScroll = function (keep) {
+  const p = document.getElementById('panel');
+  const els = [...p.querySelectorAll('.tstrip, .lsr, .ltbl')];
+  for (const [cls, l, t, z] of keep) {
+    const e = els.find((x) => x.className === cls);
+    if (!e) continue;
+    // 단계 칩: 같은 단계를 보고 있을 때만 위치 유지 (단계를 바꾸면 가운데로)
+    if (cls === 'tstrip' && z != null && (window.__ZT?.(z) !== window.__ZT?.(this.zone))) continue;
+    e.scrollLeft = l; e.scrollTop = t;
+  }
+};
+window.__ZT = (i) => ZONES[i]?.t;
+
+// 몬스터를 잡을 때 나오는 전리품 팝업 끄기 (펫 · 초희귀 같은 특별 알림은 그대로)
+const _toastK = P.toast;
+P.toast = function (text, kind = '') { if (this._inKill && (kind === 'loot' || /^(📦|💎|🔄)/u.test(text))) return; return _toastK.call(this, text, kind); };
+const _killK = P.kill;
+P.kill = function (m) { this._inKill = true; try { return _killK.call(this, m); } finally { this._inKill = false; } };

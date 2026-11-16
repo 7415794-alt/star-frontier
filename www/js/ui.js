@@ -40,7 +40,7 @@ export class UI {
     document.addEventListener('change', (e) => { if (e.target.tagName === 'SELECT') setTimeout(() => e.target.blur(), 0); });
     $('#spdBtn').addEventListener('click', () => { this.g.cycleSpeed(); this.g.toast(`⏩ 게임 속도 x${this.g.speed()}`); });
     document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { this.tab = b.dataset.tab; this.render(true); }));
-    $('#act').addEventListener('click', (e) => { if (e.target.id === 'stopBtn') this.g.stop(); });
+    $('#act').addEventListener('click', (e) => { if (e.target.id !== 'stopBtn') return; if (this.dispAct?.()?.bg) { this.g.s.bgHunt = false; this.g.rt.mon = null; this.g.toast('함께 사냥을 멈췄습니다 (스킬은 계속)'); } else this.g.stop(); });
     this.render(true);
     if (!game.s.tut) {
       game.s.tut = true;
@@ -64,8 +64,10 @@ export class UI {
     if (!force && ae?.closest?.('#panel') && (ae.tagName === 'SELECT' || (ae.tagName === 'INPUT' && /^(text|search|number)$/.test(ae.type)))) return;
     const view = [this.tab, this.zone, this.skillSel, this.town, this.codex].join('|');
     if (!force && view === this._view && performance.now() - (this._rT || 0) < 300) return;
+    if (!force && view === this._view && performance.now() < (this._busy || 0)) return;
     const sig = this.signature();
     if (!force && sig === this.sig) return;
+    const keep = this.saveScroll ? this.saveScroll() : null;
     this.sig = sig;
     this._view = view;
     this._rT = performance.now();
@@ -78,16 +80,18 @@ export class UI {
     ({ combat: this.tabCombat, skills: this.tabSkills, gear: this.tabGear, bank: this.tabBank, codex: (el) => tabCodex(this, el), town: (el) => tabTown(this, el), more: this.tabMore })[this.tab].call(this, p);
     this.noWrapSeg?.(p);
     if (!force) p.scrollTop = top;
+    if (keep) this.loadScroll(keep);
   }
 
   // 매 프레임: 상단 행동 패널 · 재화 · 알림
   frame() {
     const g = this.g, s = g.s, rt = g.rt;
+    this.panelBusy?.();
     $('#coins').textContent = '💰 ' + fmt(s.coins);
     $('#cbLvl').innerHTML = `⚔ Lv ${g.combatLevel()} · 전투력 <span class="pw">${fmt(g.power())}</span>`;
     $('#spdBtn').textContent = 'x' + g.speed();
     const act = $('#act');
-    const A = s.activity;
+    const A = this.dispAct ? this.dispAct() : s.activity;
     const key = A ? A.type + (A.mon || A.act || A.bone || A.id) : 'idle';
     if (act._k !== key) { act._k = key; act.innerHTML = this.actHtml(); act._fl = new Set(); }
     if (A?.type === 'combat') {
@@ -148,7 +152,7 @@ export class UI {
     this.render();
   }
   actHtml() {
-    const g = this.g, A = g.s.activity;
+    const g = this.g, A = this.dispAct ? this.dispAct() : g.s.activity;
     if (!A) return '<div class="idle">쉬는 중 · 전투 또는 스킬을 골라 시작하세요</div>';
     const xh = this.actHtmlX?.(A);
     if (xh) return xh;

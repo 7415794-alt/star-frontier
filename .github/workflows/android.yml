@@ -58,6 +58,12 @@ jobs:
             echo "::warning::적응형 아이콘 배경이 없어 기본 아이콘 구성으로 대체"
           fi
 
+      - name: 화면 꺼짐 방지 · 뒤로가기 처리 (MainActivity 교체)
+        run: |
+          F=$(find android/app/src/main/java -name MainActivity.java | head -1)
+          cp tools/android/MainActivity.java "$F"
+          cat "$F"
+
       - name: 버전 · 세로 화면 설정
         run: |
           VER=$(grep -oP "VERSION = '\K[^']+" www/js/data.js)
