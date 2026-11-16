@@ -1,7 +1,7 @@
 // 별무리 개척기 — 화면
 import {
   VERSION, SKILLS, SKILL, ITEMS, SLOTS, SLOT_IDS, STYLES, ZONES, ACTIONS, PRAYERS, PETS, TIERS, STATS, STAT_IDS, SPELLS, CAPS,
-  XP_TABLE, MAX_LVL, SPECIAL_NAMES, SHOP, FLAT_SP, HUNT_NAMES, huntTier,
+  XP_TABLE, MAX_LVL, SPECIAL_NAMES, SHOP, FLAT_SP, HUNT_NAMES, huntTier, USE_NAMES, TOOLS,
 } from './data.js';
 import { exportSave, importSave, C } from './game.js';
 import { tabCodex } from './codex.js';
@@ -12,6 +12,12 @@ const fmt = (n) => Math.floor(n).toLocaleString('ko-KR');
 const pct = (v, d = 0) => `${(v * 100).toFixed(d)}%`;
 const spText = (sp) => Object.entries(sp || {}).filter(([k]) => SPECIAL_NAMES[k]).map(([k, v]) => `${SPECIAL_NAMES[k]} +${FLAT_SP.has(k) ? fmt(v) : pct(v, v < 0.1 ? 1 : 0)}`).join(', ');
 const spOr = (sp) => (Object.keys(sp || {}).length ? `<span class="sp">★ ${spText(sp)}</span>` : '');
+// 물약 효과 글: % 와 최소 보장치
+const potText = (it) => {
+  const mins = Object.entries(it.fx).filter(([k]) => k.endsWith('Min')).map(([k, v]) => `최소 +${v}`);
+  return `${spText(it.fx)}${mins.length ? ` (${mins.join(', ')})` : ''} · ${it.uses}${USE_NAMES[it.use] === '처치' ? '마리 처치' : '번 ' + USE_NAMES[it.use]}`;
+};
+const itemInfo = (it) => (it.kind === 'potion' ? potText(it) : it.kind === 'tool' ? `${SKILL[it.skill].name} 채집 속도 +${pct(it.gspd)} · 요구 ${SKILL[it.req[0]].name} ${it.req[1]}` : it.kind === 'life' ? `${spText(it.fx)} · 요구 공예 ${it.req[1]}` : '');
 const icol = (it) => (it.r > 1 ? it.rc : TIERS[it.t]?.c || 'inherit');
 const stVal = (k, v) => (STATS[k].pct ? pct(v, 1) : fmt(v));
 const stText = (st) => Object.entries(st || {}).filter(([, v]) => v).map(([k, v]) => `${STATS[k].icon}${STATS[k].name} +${stVal(k, v)}`).join(' ');
@@ -46,7 +52,7 @@ export class UI {
   // 바뀐 게 있을 때만 패널을 다시 그림 (스크롤 유지)
   signature() {
     const s = this.g.s;
-    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.favPrayer, s.favPet, s.sfx, s.cb, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0]);
+    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.favPrayer, s.favPet, s.sfx, s.cb, Object.values(s.effects || {}).map((e) => e.id), s.tools, s.life, s.autoPot, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0]);
   }
   render(force = false) {
     const sig = this.signature();
@@ -104,6 +110,8 @@ export class UI {
       const left = aa?.in ? Math.min(...Object.entries(aa.in).map(([id, n]) => Math.floor(g.have(id) / n))) : null;
       $('.info', act).textContent = `${SKILL[sk].name} Lv ${g.lvl(sk)} · ${this.xpText(sk)}` + (A.type === 'bury' ? ` · 남은 뼈 ${fmt(g.have(A.bone))}` : '') + (left != null ? ` · 남은 횟수 ${fmt(left)}` : '');
     }
+    // 물약 남은 횟수 (다시 그리지 않고 숫자만)
+    document.querySelectorAll('.efl').forEach((e) => { const x = Object.values(s.effects || {}).find((y) => y.id === e.dataset.id); if (x) e.textContent = x.left; });
     // 이번 세션 기록 (0.5초마다)
     const se = $('.sess', act);
     if (se && rt.sess && (!this._sessT || performance.now() - this._sessT > 500)) {
@@ -167,6 +175,7 @@ export class UI {
       </div>
       <div class="mut" style="margin-top:4px">최종 스탯 = 레벨 + 장비 · 경험치: ${st === 'melee' ? '공격 · 힘' : STYLES[st].name} 100% + 방어 70%</div>`);
     p.appendChild(card);
+    this.effCard(p);
     if (st === 'magic') {
       const sp = h('div', 'seg');
       for (const x of SPELLS) {
@@ -265,6 +274,15 @@ export class UI {
       p.appendChild(h('div', 'card mut', `🎯 목표 Lv ${goal} · 남은 ${fmt(e.need)} XP${e.a ? ` · ${e.a.name} ${fmt(e.n)}회 · 약 ${time(e.sec / g.speed())} (x${g.speed()})` : ''} <span class="mut">(📖 도감 → 계산기에서 변경)</span>`));
     }
     if (k.id === 'div') { this.tabDiv(p); return; }
+    if (TOOLS[k.id]) {
+      const cur = ITEMS[s.tools?.[k.id]];
+      const best = g.bestTool(k.id);
+      const tc = h('div', 'card', `${TOOLS[k.id].icon} 도구: <b>${cur ? cur.name + ` (채집 속도 +${pct(cur.gspd)})` : '없음'}</b> ${best && (!cur || ITEMS[best].t > cur.t) ? `<button class="btn sm pri tb">${ITEMS[best].name} 장착</button>` : ''}${cur ? '<button class="btn sm tu">해제</button>' : ''}<div class="mut">도구는 대장 · 공예에서 만들고, 채집 중 희귀 발견(1/250)으로 상자를 얻습니다</div>`);
+      $('.tb', tc)?.addEventListener('click', () => g.equipTool(best));
+      $('.tu', tc)?.addEventListener('click', () => g.unequipTool(k.id));
+      p.appendChild(tc);
+    }
+    if (k.type === 'make' || k.type === 'gather') this.effCard(p);
     let group = '';
     for (const a of ACTIONS[k.id]) {
       if (a.group && a.group !== group) { group = a.group; p.appendChild(h('div', 'mut', group)); }
@@ -273,7 +291,7 @@ export class UI {
       const io = [a.in ? '필요 ' + Object.entries(a.in).map(([id, n]) => `${ITEMS[id].icon}${ITEMS[id].name} ${n} (보유 ${fmt(g.have(id))})`).join(', ') : '', '획득 ' + Object.entries(a.out).map(([id, n]) => `${ITEMS[id].icon}${ITEMS[id].name} ${n}`).join(', ')].filter(Boolean).join(' · ');
       const burn = g.burnChance(a);
       const it = ITEMS[Object.keys(a.out)[0]];
-      const gearInfo = it.kind === 'gear' ? `<div class="mut">${this.gearLine(it)}</div>` : '';
+      const gearInfo = it.kind === 'gear' ? `<div class="mut">${this.gearLine(it)} · 등급 무작위</div>` : itemInfo(it) ? `<div class="mut sp">${itemInfo(it)}</div>` : '';
       const r = h('div', 'row' + (lock ? ' lock' : '') + (on ? ' on' : ''), `<div class="ic">${a.icon}</div>
         <div class="info"><div class="nm">${a.name} <span class="mut">Lv ${a.lvl}</span></div><div class="mut">${io}</div>${gearInfo}
         <div class="mut">XP ${g.actionXp(k.id, a).toFixed(0)} · ${g.actionTime(k.id, a).toFixed(1)}초${burn ? ` · 태울 확률 ${pct(burn)}` : ''}</div></div>
@@ -301,6 +319,11 @@ export class UI {
     }
     p.appendChild(h('div', 'mut', '장착한 칸을 누르면 해제 · 장비 스탯: 공격 · 힘 · 방어 · 원거리 · 마법 · 생명력 흡수 · 피해 감소'));
     p.appendChild(grid);
+    const lf = ITEMS[s.life];
+    const lc = h('div', 'card', `🌿 생활 장신구: <b>${lf ? lf.icon + ' ' + lf.name : '없음'}</b> ${lf ? `<span class="sp">${spText(lf.fx)}</span> <button class="btn sm lu">해제</button>` : '<span class="mut">(공예에서 제작 · 가방에서 장착)</span>'}
+      <div class="mut">도구: ${Object.entries(TOOLS).map(([sk, t]) => `${t.icon} ${ITEMS[s.tools?.[sk]]?.name || '없음'}`).join(' · ')}</div>`);
+    $('.lu', lc)?.addEventListener('click', () => g.unequipLife());
+    p.appendChild(lc);
     const b = g.bonuses();
     const tbl = `<div class="stats">${STAT_IDS.map((k) => `<div>${STATS[k].icon} ${STATS[k].name} <b>+${stVal(k, b.st[k])}</b></div>`).join('')}</div>`;
     p.appendChild(h('div', 'card', `<b>장비 보너스</b>${tbl}<div style="margin-top:6px"><b>기도 · 펫 보너스</b><div class="sp">${spText(b.sp) || '없음'}</div></div>`));
@@ -330,6 +353,16 @@ export class UI {
     this.tabPets(p);
   }
 
+  // 마신 물약 (남은 횟수는 상단 행동 패널에서도 보임)
+  effCard(p) {
+    const g = this.g, s = g.s;
+    const ef = Object.values(s.effects || {});
+    const c = h('div', 'card', `<b>🧪 물약 효과</b> <label class="tg" style="display:inline-flex;margin-left:8px"><input type="checkbox" class="ap"${s.autoPot ? ' checked' : ''}> 끝나면 자동으로 다시 마시기</label>
+      ${ef.length ? ef.map((e) => `<div class="sp">${ITEMS[e.id].sub} ${ITEMS[e.id].name} · ${spText(ITEMS[e.id].fx)} · <span class="efl" data-id="${e.id}">${e.left}</span>회 남음 (보유 ${fmt(g.have(e.id))})</div>`).join('') : '<div class="mut">마신 물약 없음 · 가방에서 마시기 (연금술로 제작)</div>'}`);
+    $('.ap', c).addEventListener('change', (e) => { s.autoPot = e.target.checked; });
+    p.appendChild(c);
+  }
+
   // 스킬 화면에서 바로 펫 · 기도 바꾸기
   swapStrip(p) {
     const g = this.g, s = g.s;
@@ -350,11 +383,16 @@ export class UI {
     p.appendChild(h('div', 'h', `🎒 가방 (${ids.length}종) · 💰 ${fmt(s.coins)}`));
     for (const id of ids) {
       const it = ITEMS[id];
-      const extra = it.kind === 'food' ? ` · 회복 ${it.heal}` : it.kind === 'bone' ? ` · 신성 XP ${it.xp}` : '';
-      const keep = it.kind === 'food' ? `<button class="btn sm kp">${s.keepFood[id] ? '🔒 아껴 둠' : '🍽 먹음'}</button>` : '';
+      const extra = it.kind === 'food' ? ` · 회복 ${it.heal}` : it.kind === 'bone' ? ` · 신성 XP ${it.xp}` : itemInfo(it) ? `<br><span class="sp">${itemInfo(it)}</span>` : '';
+      const keep = it.kind === 'food' ? `<button class="btn sm kp">${s.keepFood[id] ? '🔒 아껴 둠' : '🍽 먹음'}</button>`
+        : it.kind === 'potion' ? '<button class="btn sm pri use">마시기</button>'
+          : it.kind === 'box' ? '<button class="btn sm pri use">열기</button><button class="btn sm useA">모두 열기</button>'
+            : it.kind === 'tool' || it.kind === 'life' ? `<button class="btn sm pri use"${g.canUse(id) ? '' : ' disabled'}>장착</button>` : '';
       const r = h('div', 'row', `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name} <span class="mut">x${fmt(g.have(id))}</span></div><div class="mut">개당 💰${fmt(it.value)}${extra}</div></div>
         ${keep}<button class="btn sm s1">1개 판매</button><button class="btn sm sa">모두</button>`);
-      if (keep) $('.kp', r).addEventListener('click', () => { if (s.keepFood[id]) delete s.keepFood[id]; else s.keepFood[id] = true; s.keepFood = { ...s.keepFood }; });
+      $('.use', r)?.addEventListener('click', () => (it.kind === 'potion' ? g.drink(id) : it.kind === 'box' ? g.openBox(id, 1) : it.kind === 'tool' ? g.equipTool(id) : g.equipLife(id)));
+      $('.useA', r)?.addEventListener('click', () => g.openBox(id, g.have(id)));
+      if (it.kind === 'food') $('.kp', r).addEventListener('click', () => { if (s.keepFood[id]) delete s.keepFood[id]; else s.keepFood[id] = true; s.keepFood = { ...s.keepFood }; });
       $('.s1', r).addEventListener('click', () => g.sell(id, 1));
       $('.sa', r).addEventListener('click', () => g.sell(id, g.have(id)));
       p.appendChild(r);

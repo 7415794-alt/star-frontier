@@ -31,6 +31,7 @@ export const SKILLS = [
   { id: 'smith', name: '대장', icon: '🔨', type: 'make', desc: '주괴 · 판금 · 검 · 도끼 · 방패' },
   { id: 'craft', name: '공예', icon: '🧵', type: 'make', desc: '활 · 석궁 · 지팡이 · 가죽 · 로브 · 장신구' },
   { id: 'cook', name: '요리', icon: '🍳', type: 'make', desc: '날생선 → 음식 (회복)' },
+  { id: 'alch', name: '연금술', icon: '⚗️', type: 'make', desc: '약초 → 물약 (스탯 · 속도 · 드롭 버프)' },
 ];
 export const SKILL = Object.fromEntries(SKILLS.map((s) => [s.id, s]));
 
@@ -132,6 +133,60 @@ TIERS.forEach((T, t) => {
   ITEMS['bone' + t] = { name: BONES[t], icon: '🦴', kind: 'bone', t, xp: [5, 10, 18, 28, 40, 55, 72, 92][t], value: v(2) };
 });
 ITEMS.burnt = { name: '탄 음식', icon: '⚫', kind: 'junk', value: 1 };
+
+// ---------- 약초 · 물약 (연금술) ----------
+const HERBS = ['쑥', '박하', '로즈마리', '세이지', '월계수', '만드라고라', '용혈초', '별꽃'];
+TIERS.forEach((T, t) => { ITEMS['herb' + t] = { name: HERBS[t], icon: '🌿', kind: 'mat', t, value: 4 * (t + 1) ** 2 }; });
+// 전투 물약: 스탯 % (최소 보장치) · 250번 공격 동안 / 기타 물약: 효과 · 횟수
+export const POTION_TYPES = [
+  { k: 'atk', n: '공격', icon: '🗡️', fx: (t) => ({ atkPct: 0.005 + 0.0028 * t, atkMin: 10 + 13 * t }), use: 'atk', uses: 250 },
+  { k: 'str', n: '힘', icon: '💪', fx: (t) => ({ strPct: 0.005 + 0.0028 * t, strMin: 10 + 13 * t }), use: 'atk', uses: 250 },
+  { k: 'def', n: '방어', icon: '🛡️', fx: (t) => ({ defPct: 0.005 + 0.0028 * t, defMin: 15 + 19 * t }), use: 'atk', uses: 250 },
+  { k: 'rng', n: '원거리', icon: '🏹', fx: (t) => ({ rngPct: 0.005 + 0.0028 * t, rngMin: 10 + 13 * t }), use: 'atk', uses: 250 },
+  { k: 'mag', n: '마법', icon: '🔮', fx: (t) => ({ magPct: 0.005 + 0.0028 * t, magMin: 10 + 13 * t }), use: 'atk', uses: 250 },
+  { k: 'regen', n: '재생', icon: '💚', fx: (t) => ({ hpTick: 3 + 3 * t }), use: 'atk', uses: 250 },
+  { k: 'boss', n: '보스 사냥', icon: '⚡', fx: (t) => ({ bossDmg: 0.05 + 0.02 * t }), use: 'atk', uses: 250 },
+  { k: 'luck', n: '행운', icon: '🍀', fx: (t) => ({ drop: 0.03 + 0.01 * t }), use: 'kill', uses: 300 },
+  { k: 'gather', n: '채집', icon: '🪓', fx: (t) => ({ gspd: 0.05 + 0.015 * t }), use: 'act', uses: 500 },
+  { k: 'prod', n: '생산', icon: '🍳', fx: (t) => ({ pspd: 0.05 + 0.015 * t }), use: 'act', uses: 500 },
+  { k: 'craft', n: '제작', icon: '🔨', fx: (t) => ({ cspd: 0.05 + 0.015 * t }), use: 'act', uses: 500 },
+  { k: 'thief', n: '도둑', icon: '🎭', fx: (t) => ({ thief: 0.02 + 0.01 * t }), use: 'act', uses: 300 },
+];
+export const USE_NAMES = { atk: '공격', kill: '처치', act: '행동' };
+const r4 = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v * 10000) / 10000]));
+TIERS.forEach((T, t) => {
+  for (const P of POTION_TYPES) {
+    ITEMS[`pot_${P.k}${t}`] = { name: `${T.n} ${P.n} 물약`, icon: '🧪', sub: P.icon, kind: 'potion', t, pk: P.k, fx: r4(P.fx(t)), use: P.use, uses: P.uses, value: 20 * (t + 1) ** 2 };
+  }
+});
+
+// ---------- 채집 도구 (채집 속도) ----------
+export const TOOL_SPEED = [0.05, 0.1, 0.16, 0.23, 0.31, 0.4, 0.5, 0.62];
+export const TOOLS = { wood: { n: '벌목 도끼', icon: '🪓' }, mine: { n: '곡괭이', icon: '⛏️' }, fish: { n: '낚싯대', icon: '🎣' } };
+TIERS.forEach((T, t) => {
+  for (const [sk, tl] of Object.entries(TOOLS)) ITEMS[`tool_${sk}${t}`] = { name: `${T.n} ${tl.n}`, icon: tl.icon, kind: 'tool', skill: sk, t, gspd: TOOL_SPEED[t], req: [sk, T.lvl], value: 40 * (t + 1) ** 2 };
+});
+
+// ---------- 생활 장신구 (전투 장비와 따로 1칸) ----------
+export const LIFE_GEAR = [
+  { k: 'topaz', n: '황옥 목걸이', icon: '📿', fx: (t) => ({ pspd: 0.03 + 0.01 * t, cspd: 0.03 + 0.01 * t }) },
+  { k: 'amethyst', n: '자수정 목걸이', icon: '🔮', fx: (t) => ({ gspd: 0.03 + 0.01 * t }) },
+  { k: 'pearl', n: '진주 반지', icon: '💍', fx: (t) => ({ sxp: 0.03 + 0.01 * t }) },
+];
+TIERS.forEach((T, t) => {
+  for (const L of LIFE_GEAR) ITEMS[`life_${L.k}${t}`] = { name: `${T.n} ${L.n}`, icon: L.icon, kind: 'life', t, fx: r4(L.fx(t)), req: ['craft', T.lvl], value: 60 * (t + 1) ** 2 };
+});
+
+// ---------- 채집 중 희귀 발견 (열면 보상) ----------
+export const BOXES = {
+  nest: { n: '새 둥지', icon: '🪺', from: 'wood' },
+  gembag: { n: '보석 주머니', icon: '👝', from: 'mine' },
+  chest: { n: '물속 상자', icon: '🧰', from: 'fish' },
+};
+export const RARE_FIND = 1 / 250;
+TIERS.forEach((T, t) => {
+  for (const [k, b] of Object.entries(BOXES)) ITEMS[`${k}${t}`] = { name: `${T.n} ${b.n}`, icon: b.icon, kind: 'box', box: k, t, value: 30 * (t + 1) ** 2 };
+});
 ITEMS.bread = { name: '빵', icon: '🍞', kind: 'food', heal: 5, value: 4 };
 
 // ---------- 장비 ----------
@@ -211,7 +266,7 @@ function lootTable(style, t, i, boss) {
     ranged: [[`log${t}`, 0.3, 1, 2], [`hide${t}`, 0.25, 1, 2], [`log${lo}`, 0.12, 1, 3]],
     magic: [[`cloth${t}`, 0.3, 1, 2], [`log${t}`, 0.12, 1, 2], [`hide${lo}`, 0.1, 1, 2]],
   }[style];
-  L.push(...mats, [`raw${t}`, 0.12, 1, 2], [`food${lo}`, 0.08, 1, 2], [`gem${t}`, boss ? 0.25 : 0.015, 1, 1]);
+  L.push(...mats, [`raw${t}`, 0.12, 1, 2], [`food${lo}`, 0.08, 1, 2], [`gem${t}`, boss ? 0.25 : 0.015, 1, 1], [`herb${t}`, boss ? 0.5 : 0.15, 1, boss ? 4 : 2]);
   if (boss) {
     L.push([`bar${t}`, 0.35, 2, 4], [`ore${t}`, 0.5, 3, 6]);
     for (const ty of STYLE_GEAR[style]) L.push([ty + t, 0.06, 1, 1]);
@@ -263,9 +318,19 @@ const GATHER_XP = [10, 18, 30, 45, 65, 90, 120, 155];
 export const ACTIONS = {};
 const addAct = (skill, a) => { (ACTIONS[skill] ||= []).push(a); };
 TIERS.forEach((T, t) => {
-  addAct('wood', { id: 'wood' + t, name: LOGS[t] + ' 베기', icon: '🌲', lvl: T.lvl, time: 3 + t * 0.4, xp: GATHER_XP[t], out: { ['log' + t]: 1 } });
-  addAct('mine', { id: 'mine' + t, name: ORES[t] + ' 캐기', icon: '⛰️', lvl: T.lvl, time: 3 + t * 0.4, xp: GATHER_XP[t], out: { ['ore' + t]: 1 }, gem: 'gem' + t });
-  addAct('fish', { id: 'fish' + t, name: FISH[t] + ' 낚기', icon: '🎣', lvl: T.lvl, time: 3 + t * 0.4, xp: GATHER_XP[t], out: { ['raw' + t]: 1 } });
+  addAct('wood', { id: 'wood' + t, name: LOGS[t] + ' 베기', icon: '🌲', lvl: T.lvl, time: 3 + t * 0.4, xp: GATHER_XP[t], out: { ['log' + t]: 1 }, rare: { ['nest' + t]: RARE_FIND, ['herb' + t]: 0.04 } });
+  addAct('mine', { id: 'mine' + t, name: ORES[t] + ' 캐기', icon: '⛰️', lvl: T.lvl, time: 3 + t * 0.4, xp: GATHER_XP[t], out: { ['ore' + t]: 1 }, gem: 'gem' + t, rare: { ['gembag' + t]: RARE_FIND } });
+  addAct('fish', { id: 'fish' + t, name: FISH[t] + ' 낚기', icon: '🎣', lvl: T.lvl, time: 3 + t * 0.4, xp: GATHER_XP[t], out: { ['raw' + t]: 1 }, rare: { ['chest' + t]: RARE_FIND } });
+  // 연금술: 전투 물약 = 약초 2 + 뼈 1, 기타 물약 = 약초 3 + 주괴 1
+  for (const P of POTION_TYPES) {
+    const combat = ['atk', 'str', 'def', 'rng', 'mag'].includes(P.k);
+    addAct('alch', { id: `pot_${P.k}${t}`, group: T.n + ' 물약', name: `${T.n} ${P.n} 물약`, icon: P.icon, lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * (combat ? 1.1 : 1.4)), in: combat ? { ['herb' + t]: 2, ['bone' + t]: 1 } : { ['herb' + t]: 3, ['bar' + t]: 1 }, out: { [`pot_${P.k}${t}`]: 1 } });
+  }
+  // 도구 (대장) · 생활 장신구 (공예)
+  addAct('smith', { id: `tool_wood${t}`, group: '도구 제작', craft: true, name: `${T.n} 벌목 도끼`, icon: '🪓', lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 2), in: { ['bar' + t]: 2, ['log' + t]: 1 }, out: { [`tool_wood${t}`]: 1 } });
+  addAct('smith', { id: `tool_mine${t}`, group: '도구 제작', craft: true, name: `${T.n} 곡괭이`, icon: '⛏️', lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 2), in: { ['bar' + t]: 2, ['log' + t]: 1 }, out: { [`tool_mine${t}`]: 1 } });
+  addAct('craft', { id: `tool_fish${t}`, group: '도구 제작', craft: true, name: `${T.n} 낚싯대`, icon: '🎣', lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 2), in: { ['log' + t]: 2, ['hide' + t]: 1 }, out: { [`tool_fish${t}`]: 1 } });
+  for (const L of LIFE_GEAR) addAct('craft', { id: `life_${L.k}${t}`, group: '생활 장신구', craft: true, name: `${T.n} ${L.n}`, icon: L.icon, lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 3), in: { ['gem' + t]: 1, ['bar' + t]: 1 }, out: { [`life_${L.k}${t}`]: 1 } });
   addAct('cook', { id: 'cook' + t, name: FISH[t] + ' 굽기', icon: '🍖', lvl: T.lvl, time: 2.4, xp: Math.round(GATHER_XP[t] * 0.9), in: { ['raw' + t]: 1 }, out: { ['food' + t]: 1 }, burn: true });
   addAct('smith', { id: 'bar' + t, group: '주괴 제련', name: T.n + ' 주괴', icon: '🧱', lvl: T.lvl, time: 2.5, xp: Math.round(GATHER_XP[t] * 0.7), in: { ['ore' + t]: 1 }, out: { ['bar' + t]: 1 } });
 });
@@ -273,7 +338,7 @@ for (const [type, g] of Object.entries(GEAR)) {
   TIERS.forEach((T, t) => {
     const inp = Object.fromEntries(Object.entries(g.mat).map(([m, n]) => [m + t, n]));
     const n = Object.values(g.mat).reduce((a, b) => a + b, 0);
-    addAct(g.skill, { id: `${type}${t}`, group: '장비 제작', name: `${T.n} ${g.name}`, icon: g.icon, lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 0.85 * n), in: inp, out: { [`${type}${t}`]: 1 } });
+    addAct(g.skill, { id: `${type}${t}`, group: '장비 제작', craft: true, name: `${T.n} ${g.name}`, icon: g.icon, lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 0.85 * n), in: inp, out: { [`${type}${t}`]: 1 } });
   });
 }
 

@@ -1,7 +1,7 @@
 // 별무리 개척기 — 게임 로직
 import {
   SKILLS, SKILL, ITEMS, SLOT_IDS, STAT_IDS, CAPS, MONSTER, ACTIONS, PRAYERS, PETS, PET, SPELLS, SPEEDS,
-  levelOf, XP_TABLE, baseHp, COMBAT_TICK, HUNT_PER, huntTier, rollRarity, gearId, penChance, defEff, MON_ROLL, monFloor, monDef, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
+  levelOf, XP_TABLE, TIERS, RARITY, baseHp, COMBAT_TICK, HUNT_PER, huntTier, rollRarity, gearId, penChance, defEff, MON_ROLL, monFloor, monDef, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
 } from './data.js';
 
 export const SAVE_KEY = 'star-frontier-save-v1';
@@ -38,6 +38,10 @@ export function newState() {
     favPrayer: [], favPet: [], // 즐겨찾기
     sfx: false, cb: false,     // 효과음 · 색약 모드
     tut: false,                // 처음 안내를 봤는지
+    effects: {},               // 마신 물약: { 종류: { id, left } }
+    autoPot: true,             // 물약이 끝나면 같은 물약 자동으로 다시 마시기
+    tools: {},                 // 채집 도구 { wood: id, mine: id, fish: id }
+    life: null,                // 생활 장신구 1칸
     lastSeen: Date.now(),
   };
 }
@@ -167,12 +171,16 @@ export class Game {
       addSp(it.sp);
     }
     addSp(this.prayer()?.fx);
+    addSp(ITEMS[this.s.life]?.fx);
+    for (const e of Object.values(this.s.effects || {})) addSp(ITEMS[e.id]?.fx);
+    for (const f of this.extraSources()) addSp(f);
     const pet = this.s.pet && this.s.pets.includes(this.s.pet) ? PET[this.s.pet] : null;
     addSp(pet?.fx);
     this.rt.cache = b;
     return b;
   }
   sp(k) { return this.bonuses().sp[k] || 0; }
+  extraSources() { return []; } // 박물관 · 재능 등 (4차)
   prayer() { const p = PRAYERS.find((x) => x.id === this.s.prayer); return p && this.lvl('div') >= p.lvl ? p : null; }
   weapon() { return ITEMS[this.s.equip.weapon] || null; }
   style() { return this.weapon()?.style || 'melee'; }
@@ -307,12 +315,11 @@ export class Game {
     const ty = SKILL[skill].type;
     if (ty === 'gather') sp *= 1 + this.sp('gspd') + this.toolSpeed(skill);
     // 장비 제작은 제작 속도, 요리 · 제련 · 연금 같은 가공은 생산 속도
-    if (ty === 'make') sp *= 1 + (a.group === '장비 제작' ? this.sp('cspd') : this.sp('pspd'));
+    if (ty === 'make') sp *= 1 + (a.craft ? this.sp('cspd') : this.sp('pspd'));
     return a.time / sp;
   }
-  toolSpeed() { return 0; }
-  actionKind(a) { return a.group === '장비 제작' ? 'cspd' : 'pspd'; }
-  isCraft(skill, a) { return SKILL[skill].type === 'make' && a.group === '장비 제작';
+  toolSpeed(skill) { return ITEMS[this.s.tools?.[skill]]?.gspd || 0; }
+  isCraft(skill, a) { return SKILL[skill].type === 'make' && !!a.craft;
   }
   actionXp(skill, a) {
     const ty = SKILL[skill].type;
@@ -359,6 +366,7 @@ export class Game {
     dmg = Math.min(dmg, rt.monHp);
     rt.monHp -= dmg;
     this.fx('mon', String(dmg), 'hit');
+    this.useEffects('atk');
     if (dmg > 0) {
       const ls = C.ls(p);
       if (ls > 0 && rt.hp < C.maxHp(p)) rt.hp = Math.min(C.maxHp(p), rt.hp + Math.max(1, Math.ceil(dmg * ls)));
@@ -424,6 +432,7 @@ export class Game {
     s.kills ||= {};
     s.kills[m.id] = (s.kills[m.id] || 0) + 1;
     s.log.first[m.id] ||= Date.now();
+    this.useEffects('kill');
     if (m.boss) s.log.bossKills++;
     if (this.rt.sess) this.rt.sess.kills++;
     const mul = this.dropMult(m);
@@ -473,6 +482,73 @@ export class Game {
     const better = s.favorDef ? (it.st.def || 0) - (cur?.st.def || 0) > 0 || (!cur && this.equipDelta(id) > 0) : this.equipDelta(id) > 0;
     if (better) { this.equip(id); this.toast(`🔄 자동 장착: ${it.name}`, 'loot'); }
   }
+  // ---------- 물약 ----------
+  drink(id) {
+    const it = ITEMS[id];
+    if (it?.kind !== 'potion' || this.have(id) < 1) return false;
+    this.give(id, -1);
+    this.s.effects = { ...this.s.effects, [it.pk]: { id, left: it.uses } };
+    this.dirty();
+    this.toast(`🧪 ${it.name} (${it.uses}회)`);
+    return true;
+  }
+  useEffects(kind) {
+    const ef = this.s.effects;
+    for (const [k, e] of Object.entries(ef || {})) {
+      const it = ITEMS[e.id];
+      if (!it) { delete ef[k]; continue; }
+      if (it.use !== kind) continue;
+      if (--e.left > 0) continue;
+      if (this.s.autoPot && this.have(e.id) > 0) { this.give(e.id, -1); e.left = it.uses; continue; }
+      delete ef[k];
+      this.dirty();
+      this.toast(`🧪 ${it.name} 효과가 끝났습니다`, 'bad');
+    }
+  }
+  // ---------- 도구 · 생활 장신구 ----------
+  canUse(id) { const it = ITEMS[id]; return !!it?.req && this.lvl(it.req[0]) >= it.req[1]; }
+  equipTool(id) {
+    const it = ITEMS[id];
+    if (it?.kind !== 'tool' || this.have(id) < 1 || !this.canUse(id)) return false;
+    const old = this.s.tools[it.skill];
+    if (old) this.give(old, 1);
+    this.give(id, -1);
+    this.s.tools = { ...this.s.tools, [it.skill]: id };
+    return true;
+  }
+  unequipTool(skill) { const old = this.s.tools[skill]; if (!old) return; this.give(old, 1); const t = { ...this.s.tools }; delete t[skill]; this.s.tools = t; }
+  bestTool(skill) { return Object.keys(this.s.bank).filter((id) => ITEMS[id]?.kind === 'tool' && ITEMS[id].skill === skill && this.canUse(id)).sort((a, b) => ITEMS[b].t - ITEMS[a].t)[0]; }
+  equipLife(id) {
+    const it = ITEMS[id];
+    if (it?.kind !== 'life' || this.have(id) < 1 || !this.canUse(id)) return false;
+    if (this.s.life) this.give(this.s.life, 1);
+    this.give(id, -1);
+    this.s.life = id;
+    this.dirty();
+    return true;
+  }
+  unequipLife() { if (!this.s.life) return; this.give(this.s.life, 1); this.s.life = null; this.dirty(); }
+  // ---------- 희귀 발견 상자 열기 ----------
+  openBox(id, n = 1) {
+    const it = ITEMS[id];
+    if (it?.kind !== 'box') return null;
+    n = Math.min(n, this.have(id));
+    const got = {};
+    const add = (k, c) => { if (ITEMS[k] && c > 0) { got[k] = (got[k] || 0) + c; } };
+    let coins = 0;
+    const t = it.t, up = Math.min(t + 1, TIERS.length - 1), R = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+    for (let i = 0; i < n; i++) {
+      this.give(id, -1);
+      if (it.box === 'nest') { add('herb' + t, R(2, 4)); if (Math.random() < 0.3) add('herb' + up, 1); if (Math.random() < 0.2) add('log' + up, R(1, 3)); }
+      else if (it.box === 'gembag') { add('gem' + t, R(1, 3)); if (Math.random() < 0.2) add('gem' + up, 1); }
+      else { coins += R(50, 150) * (t + 1) ** 2; add('raw' + t, R(3, 6)); if (Math.random() < 0.15) add(['sword', 'bow', 'staff', 'plate', 'hbody', 'robe', 'ring', 'amulet'][R(0, 7)] + t, 1); }
+    }
+    for (const [k, c] of Object.entries(got)) this.gain(k, c);
+    this.s.coins += coins;
+    this.toast(`${it.icon} ${n}개 열기: ${Object.entries(got).map(([k, c]) => `${ITEMS[k].icon}${c}`).join(' ')}${coins ? ` 💰${coins.toLocaleString()}` : ''}`, 'loot');
+    return got;
+  }
+
   // 세션 기록 (행동을 시작할 때마다 새로)
   newSess() { this.rt.sess = { t: 0, kills: 0, deaths: 0, coins: 0, food: 0, xp: {}, got: {} }; }
 
@@ -498,6 +574,10 @@ export class Game {
       if (a.burn && Math.random() < this.burnChance(a)) this.gain('burnt', 1);
       else for (const [id, n] of Object.entries(a.out || {})) this.gain(id, n);
       if (a.gem && Math.random() < 0.01) { this.gain(a.gem, 1); this.toast(`💎 ${ITEMS[a.gem].name} 발견!`, 'loot'); }
+      for (const [rid, rp] of Object.entries(a.rare || {})) {
+        if (Math.random() < rp * (1 + this.sp('drop'))) { this.gain(rid, 1); if (ITEMS[rid].kind === 'box') this.toast(`✨ ${ITEMS[rid].icon} ${ITEMS[rid].name} 발견!`, 'pet'); }
+      }
+      this.useEffects('act');
       this.addXp(A.skill, this.actionXp(A.skill, a));
       this.s.stats.actions++;
       const pet = PETS.find((p) => p.src === A.skill);
@@ -596,6 +676,9 @@ export function hydrate(o) {
   s.log = { ...base.log, ...(o.log || {}) };
   for (const k of ['first', 'got', 'gear']) s.log[k] = { ...(o.log?.[k] || {}) };
   s.goals = { ...(o.goals || {}) };
+  s.effects = Object.fromEntries(Object.entries(o.effects || {}).filter(([, e]) => ITEMS[e?.id]?.kind === 'potion'));
+  s.tools = Object.fromEntries(Object.entries(o.tools || {}).filter(([sk, id]) => ITEMS[id]?.kind === 'tool' && ITEMS[id].skill === sk));
+  if (s.life && ITEMS[s.life]?.kind !== 'life') s.life = null;
   s.favPrayer = [...(o.favPrayer || [])]; s.favPet = [...(o.favPet || [])];
   if (!SPEEDS.includes(s.speed)) s.speed = 1;
   return s;
