@@ -1351,3 +1351,163 @@ U.bgHuntCard = function (p) {
 };
 const _sigSep = U.sigX;
 U.sigX = function () { return [..._sigSep.call(this), this.g.s.hunt]; };
+
+import { SPECIAL_NAMES as SPN_ML, FLAT_SP as FSP_ML } from './data.js';
+const spText = (sp) => Object.entries(sp || {}).filter(([k]) => SPN_ML[k] && sp[k]).map(([k, v]) => `${SPN_ML[k]} +${FSP_ML.has(k) ? fmt(v) : pct(v, v < 0.1 ? 2 : 1)}`).join(', ');
+
+// ====================== 박물관: 모든 전리품 기증 (조금씩 능력치) ======================
+// 아이템 종류별로 오르는 능력치 · 기증 개수 1 / 10 / 100 / 1,000 / 10,000 개마다 한 단계
+const MU_FAM = { log: 'rngPct', ore: 'atkPct', bar: 'strPct', gem: 'magPct', cloth: 'magPct', hide: 'defPct', bone: 'defPct', raw: 'heal', food: 'heal', herb: 'drop', nest: 'drop', gembag: 'drop', chest: 'drop', sstone: 'bossDmg' };
+const MU_STEPS = [1, 10, 100, 1000, 10000];
+const MU_CAP = { heal: 0.5 };
+const MU_CAP_DEF = 0.25;
+const muFam = (id) => { const m = /^([a-z]+)(\d+)$/.exec(id); return m && MU_FAM[m[1]] && ITEMS[id] ? { k: MU_FAM[m[1]], t: +m[2] } : null; };
+const muLevel = (n) => MU_STEPS.filter((x) => (n || 0) >= x).length;
+const muPer = (t) => 0.0004 * (1 + 0.2 * t); // 한 단계당
+P.museumLootBonus = function () {
+  const tot = {};
+  for (const [id, n] of Object.entries(this.s.museumLoot || {})) {
+    const f = muFam(id);
+    if (f) tot[f.k] = (tot[f.k] || 0) + muLevel(n) * muPer(f.t);
+  }
+  for (const k of Object.keys(tot)) tot[k] = Math.min(MU_CAP[k] ?? MU_CAP_DEF, Math.round(tot[k] * 10000) / 10000);
+  return tot;
+};
+const _extraML = P.extraSources;
+P.extraSources = function () { return [..._extraML.call(this), this.museumLootBonus()]; };
+// 다음 단계까지 필요한 개수
+P.muNeed = function (id) {
+  const n = this.s.museumLoot?.[id] || 0, nx = MU_STEPS.find((x) => x > n);
+  return nx ? nx - n : 0;
+};
+P.donateLoot = function (id, quiet = false) {
+  const k = Math.min(this.have(id), this.muNeed(id));
+  if (k <= 0 || !muFam(id)) return 0;
+  this.give(id, -k);
+  this.s.museumLoot = { ...(this.s.museumLoot || {}), [id]: (this.s.museumLoot?.[id] || 0) + k };
+  this.dirty();
+  if (!quiet) this.toast(`🏛️ ${ITEMS[id].name} ${fmt(k)}개 기증 · ${muLevel(this.s.museumLoot[id])}단계`, 'loot');
+  return k;
+};
+P.lootDonatable = function () { return Object.keys(this.s.bank).filter((id) => muFam(id) && this.muNeed(id) > 0 && this.have(id) > 0); };
+P.donateAllLoot = function () {
+  let n = 0, kinds = 0;
+  for (const id of this.lootDonatable()) { const k = this.donateLoot(id, true); if (k) { n += k; kinds++; } }
+  this.toast(n ? `🏛️ 전리품 ${kinds}종 ${fmt(n)}개 기증` : '기증할 전리품이 없습니다', n ? 'loot' : 'bad');
+  return n;
+};
+// 자동 기증이 켜져 있으면 전리품도 다음 단계에 필요한 만큼만 (10초마다)
+const _adML = P.autoDonate;
+P.autoDonate = function () {
+  const r = _adML.call(this);
+  if (this.s.autoLootDonate) for (const id of this.lootDonatable()) this.donateLoot(id, true);
+  return r;
+};
+U.museumLootCard = function (p) {
+  const g = this.g, s = g.s, b = g.museumLootBonus();
+  const list = g.lootDonatable().sort((a, c) => (ITEMS[c].t || 0) - (ITEMS[a].t || 0));
+  const done = Object.keys(s.museumLoot || {}).length;
+  const c = h('div', 'card', `<b>🏛️ 전리품 전시실</b> <span class="mut">기증 ${done}종</span>
+    <div class="mut">재료 · 뼈 · 음식 · 약초 · 상자 같은 모든 전리품을 기증할 수 있습니다. 아이템마다 1 / 10 / 100 / 1,000 / 10,000개를 기증할 때마다 능력치가 조금씩 오릅니다 (높은 단계일수록 큼) · 목재=원거리 · 광석=공격 · 주괴=힘 · 보석 · 마력 천=마법 · 가죽 · 뼈=방어 · 생선 · 음식=음식 회복 · 약초 · 상자=드롭률 · 소환석=보스 피해</div>
+    <div style="margin-top:6px">보너스: <span class="sp">${spText(b) || '없음'}</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><button class="btn pri dal"${list.length ? '' : ' disabled'}>🏛️ 전리품 한꺼번에 기증 (${list.length}종)</button>
+    <label class="tg"><input type="checkbox" class="ald"${s.autoLootDonate ? ' checked' : ''}> 전리품 자동 기증</label></div>
+    <div class="mut">한꺼번에 · 자동 기증은 다음 단계에 필요한 만큼만 냅니다 (재료를 다 쓰지 않음)</div>`);
+  c.querySelector('.dal').addEventListener('click', () => g.donateAllLoot());
+  c.querySelector('.ald').addEventListener('change', (e) => { s.autoLootDonate = e.target.checked; });
+  p.appendChild(c);
+  for (const id of list.slice(0, 20)) {
+    const it = ITEMS[id], f = muFam(id), n = s.museumLoot?.[id] || 0;
+    const r = h('div', 'row', `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name} <span class="mut">보유 ${fmt(g.have(id))}</span></div><div class="mut">기증 ${fmt(n)}개 · ${muLevel(n)} / ${MU_STEPS.length}단계 · 다음 단계까지 ${fmt(g.muNeed(id))}개 · ${spText({ [f.k]: muPer(f.t) })} / 단계</div></div><button class="btn sm pri">기증</button>`);
+    r.querySelector('button').addEventListener('click', () => g.donateLoot(id));
+    p.appendChild(r);
+  }
+  if (list.length > 20) p.appendChild(h('div', 'mut', `외 ${list.length - 20}종 (한꺼번에 기증으로 모두)`));
+};
+const _sigML = U.sigX;
+U.sigX = function () { const s = this.g.s; return [..._sigML.call(this), Object.keys(s.museumLoot || {}).length, s.autoLootDonate, s.autoDecomp, this.town === 'museum' ? s.bank : 0]; };
+
+// ====================== 자동 분해 (켜기 / 끄기) ======================
+// 켜면: 스킬 재료 · 도구 업그레이드 재료 · 납품 의뢰가 모자랄 때 한 단계 위 아이템을 저절로 분해
+const _bestActD = P.bestAct;
+P.bestAct = function (skill) {
+  if (!this.s.autoDecomp) return _bestActD.call(this, skill);
+  const L = this.lvl(skill);
+  const list = (ACTIONS[skill] || []).filter((a) => a.lvl <= L && !/^(sstone|whistle|life_)/.test(a.id) && (!a.in || this.hasInputs(a) || this.canFill(a.in)));
+  if (!list.length) return null;
+  return list.reduce((b, a) => (a.lvl > b.lvl || (a.lvl === b.lvl && this.actionXp(skill, a) / this.actionTime(skill, a) > this.actionXp(skill, b) / this.actionTime(skill, b)) ? a : b));
+};
+const _skillTickD = P.skillTick;
+P.skillTick = function (dt) {
+  const A = this.s.activity;
+  if (this.s.autoDecomp && A?.type === 'skill') {
+    const a = (ACTIONS[A.skill] || []).find((x) => x.id === A.act);
+    if (a?.in && !this.hasInputs(a) && this.canFill(a.in)) this.fillFor(a.in, true);
+  }
+  return _skillTickD.call(this, dt);
+};
+const _fillFor = P.fillFor;
+P.fillFor = function (inp, quiet = false) {
+  if (!quiet) return _fillFor.call(this, inp);
+  const q = this.quiet; this.quiet = true;
+  try { return _fillFor.call(this, inp); } finally { this.quiet = q; }
+};
+const _upTool = P.upgradeTool;
+P.upgradeTool = function (sk) {
+  const nx = this.toolNext(sk);
+  if (this.s.autoDecomp && nx && nx.lvOk && nx.coinOk && !nx.matOk && this.canFill(nx.mat)) {
+    for (const [id, n] of Object.entries(nx.mat)) if (this.have(id) < n) this.produce(id, n - this.have(id));
+  }
+  return _upTool.call(this, sk);
+};
+// 도구는 자동 분해가 켜져 있으면 재료가 모자라도 업그레이드 버튼이 눌리게
+const _toolNextD = P.toolNext;
+P.toolNext = function (sk) {
+  const nx = _toolNextD.call(this, sk);
+  if (nx && this.s.autoDecomp && !nx.matOk && this.canFill(nx.mat)) { nx.decompOk = true; nx.ok = nx.lvOk && nx.coinOk; }
+  return nx;
+};
+const _aqD = P.autoQuest;
+P.autoQuest = function () {
+  _aqD.call(this);
+  if (!this.s.autoDecomp || !this.s.rq) return;
+  for (const q of this.s.rq.list) {
+    if (q.type !== 'got') continue;
+    const left = q.qty - this.rqProg(q);
+    if (left > 0 && this.canProduce(q.target, left)) this.produce(q.target, left);
+  }
+};
+const decompToggle = (g) => {
+  const l = h('label', 'tg', `<input type="checkbox"${g.s.autoDecomp ? ' checked' : ''}> 🔽 자동 분해 <span class="mut">(재료가 모자라면 한 단계 위 아이템 1개 → 2개)</span>`);
+  l.querySelector('input').addEventListener('change', (e) => { g.s.autoDecomp = e.target.checked; });
+  return l;
+};
+const _bestActCardD = U.bestActCard;
+U.bestActCard = function (p, k) {
+  _bestActCardD.call(this, p, k);
+  if (ACTIONS[k.id]?.some((a) => a.in)) p.lastElementChild.appendChild(decompToggle(this.g));
+};
+const _toolShopD = U.toolShop;
+U.toolShop = function (p) {
+  const n0 = p.children.length;
+  _toolShopD.call(this, p);
+  const c = h('div', 'card');
+  c.appendChild(decompToggle(this.g));
+  p.insertBefore(c, p.children[n0 + 2] || null);
+};
+const _rqFnD = U.townFns.quest;
+U.townFns.quest = function (ui, p, g, s) {
+  const n0 = p.children.length;
+  _rqFnD(ui, p, g, s);
+  const c = h('div', 'card');
+  c.appendChild(decompToggle(g));
+  c.appendChild(h('div', 'mut', '켜면 납품 의뢰를 상위 아이템 분해로 저절로 채웁니다'));
+  p.insertBefore(c, p.children[n0 + 1] || null);
+};
+// 자동 분해가 켜져 있으면 스킬을 시작할 때도 모자란 재료를 먼저 채움
+const _startSkillD = P.startSkill;
+P.startSkill = function (skill, actId) {
+  const a = (ACTIONS[skill] || []).find((x) => x.id === actId);
+  if (this.s.autoDecomp && a?.in && !this.hasInputs(a) && this.canFill(a.in)) this.fillFor(a.in, true);
+  return _startSkillD.call(this, skill, actId);
+};

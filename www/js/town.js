@@ -91,6 +91,7 @@ P.townInit = function () {
   s.quests ||= { active: {}, done: [] };
   s.talents ||= {};
   s.museum ||= {};
+  for (const bid of Object.keys(s.museum)) if (!ITEMS[bid]) delete s.museum[bid]; // 없어진 장비(방패) 기록 정리
   s.cpQuest ||= 0;
   s.talentResets ||= 0;
   s.trader ||= { at: 0, items: [] };
@@ -291,6 +292,7 @@ function townTalent(ui, p, g, s) {
 
 function townMuseum(ui, p, g, s) {
   ui.autoDonateCard?.(p);
+  ui.museumLootCard?.(p);
   const st = g.style();
   const b = g.museumBonus(st);
   p.appendChild(h('div', 'card', `<b>🏛️ 박물관</b> <span class="mut">기증한 장비 ${Object.keys(s.museum).length}종</span>
@@ -307,7 +309,7 @@ function townMuseum(ui, p, g, s) {
     r.querySelector('button').addEventListener('click', () => g.donate(id));
     p.appendChild(r);
   }
-  const done = Object.entries(s.museum).sort((a, c) => ITEMS[c[0]].t - ITEMS[a[0]].t);
+  const done = Object.entries(s.museum).filter(([bid]) => ITEMS[bid]).sort((a, c) => ITEMS[c[0]].t - ITEMS[a[0]].t);
   p.appendChild(h('div', 'h', `전시 중 (${done.length})`));
   p.appendChild(h('div', 'card', done.map(([bid, r]) => `<span style="color:${RARITY[r - 1].c}">${ITEMS[bid].icon}${ITEMS[bid].name}</span>`).join(' · ') || '<span class="mut">없음</span>'));
 }
