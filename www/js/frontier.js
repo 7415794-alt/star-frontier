@@ -1282,3 +1282,35 @@ P.rqInit = function () {
   _rqInitX.call(this);
   for (const q of this.s.rq.list) if ((q.reward?.gear && !ITEMS[q.reward.gear]) || Object.keys(q.reward?.items || {}).some((id) => !ITEMS[id])) q.reward = this.rqReward(q.t ?? 0);
 };
+// 스킬 재료 · 뼈가 떨어져 스킬이 멈추면, 함께 하던 사냥은 계속 (쉬는 중으로 넘어가지 않게)
+for (const fn of ['skillTick', 'buryTick']) {
+  const o = P[fn];
+  P[fn] = function (dt) {
+    const prev = this.s.activity;
+    const r = o.call(this, dt);
+    if (prev && !this.s.activity && this.s.bgHunt !== false && MONSTER[this.s.huntMon]) {
+      this.startCombat(this.s.huntMon);
+      this.toast(`재료가 떨어져 스킬을 멈추고 ${MONSTER[this.s.huntMon].name} 사냥을 계속합니다`, 'info');
+    }
+    return r;
+  };
+}
+// 화면을 누르거나 값을 바꾸면 바로 다시 그림 (평소에는 1.2초 간격)
+const _pbX = U.panelBusy;
+U.panelBusy = function () {
+  const first = !this._busyHooked;
+  _pbX.call(this);
+  if (!first || !this._busyHooked) return;
+  const now = () => { this._rT = 0; this._busy = 0; };
+  for (const ev of ['click', 'change']) document.addEventListener(ev, () => setTimeout(now, 0), true);
+};
+// 전투 탭: 피해 숫자 빠른 끄기 버튼 (전투 방식 카드 아래)
+const _styleCardN2 = U.styleCard;
+U.styleCard = function (p) {
+  _styleCardN2.call(this, p);
+  const s = this.g.s;
+  const c = h('div', 'card', `<button class="btn sm nd">💥 주는 피해 ${s.numDeal !== false ? '켜짐' : '꺼짐'}</button> <button class="btn sm nt">🩸 받는 피해 ${s.numTake !== false ? '켜짐' : '꺼짐'}</button>`);
+  c.querySelector('.nd').addEventListener('click', () => { s.numDeal = s.numDeal === false; });
+  c.querySelector('.nt').addEventListener('click', () => { s.numTake = s.numTake === false; });
+  p.appendChild(c);
+};

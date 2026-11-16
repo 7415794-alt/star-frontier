@@ -64,7 +64,7 @@ export class UI {
     const ae = document.activeElement;
     if (!force && ae?.closest?.('#panel') && (ae.tagName === 'SELECT' || (ae.tagName === 'INPUT' && /^(text|search|number)$/.test(ae.type)))) return;
     const view = [this.tab, this.zone, this.skillSel, this.town, this.codex].join('|');
-    if (!force && view === this._view && performance.now() - (this._rT || 0) < 300) return;
+    if (!force && view === this._view && performance.now() - (this._rT || 0) < 1200) return; // 같은 화면은 1.2초에 한 번만 다시 그림 (잔렉 줄이기 · 누르면 바로 반영)
     if (!force && view === this._view && performance.now() < (this._busy || 0)) return;
     const sig = this.signature();
     if (!force && sig === this.sig) return;
