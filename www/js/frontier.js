@@ -408,12 +408,14 @@ U.frameX = function (act, A) {
       }
     }
   }
+  if (rt.cele && !this.popOk('cele')) rt.cele = null;
   if (rt.cele) {
     const c = h('div', 'cele', rt.cele.text);
     document.body.appendChild(c);
     setTimeout(() => c.remove(), 1900);
     rt.cele = null;
   }
+  if (rt.popup && !this.popOk('modal')) rt.popup = null;
   if (rt.popup && document.getElementById('modal')?.classList.contains('hidden')) {
     const pp = rt.popup;
     rt.popup = null;
@@ -720,4 +722,166 @@ U.noWrapSeg = function (root) {
     });
     n.replaceWith(fr);
   }
+};
+
+// ====================== 자동 조합 켜기 · 무작위 의뢰 30개 · 팝업 설정 ======================
+import { ZONES } from './data.js';
+
+// ---------- 팝업 설정: 종류별로 켜고 끔 ----------
+export const POP_KINDS = [
+  ['lvl', '⬆️ 레벨 업 · 목표 달성'], ['loot', '📦 아이템 · 장비 · 보석 획득'], ['pet', '🐾 펫 · 희귀 발견 · 의뢰 완료'],
+  ['bad', '⚠️ 경고 (음식 없음 · 쓰러짐 · 재료 부족)'], ['info', '💬 일반 알림 (배속 · 저장 · 물약)'], ['cele', '🎉 축하 화면 (초희귀 · 스킬 보스)'], ['modal', '🪟 결과 창 (보스 결과 · 오프라인 진행)'],
+];
+U.popOk = function (kind) {
+  const p = this.g.s.pop || {};
+  if (p.all === false) return false;
+  return p[kind || 'info'] !== false;
+};
+U.popCard = function (p) {
+  const g = this.g, s = g.s;
+  s.pop ||= {};
+  const c = h('div', 'card', `<b>🔔 팝업 · 알림</b>
+    <label class="tg"><input type="checkbox" data-k="all"${s.pop.all !== false ? ' checked' : ''}> <b>모든 팝업</b> (끄면 아래 전부 안 보임)</label>
+    ${POP_KINDS.map(([k, n]) => `<label class="tg" style="margin-left:18px${s.pop.all === false ? ';opacity:.45' : ''}"><input type="checkbox" data-k="${k}"${s.pop[k] !== false ? ' checked' : ''}> ${n}</label>`).join('')}
+    <label class="tg" style="margin-left:18px">📦 장비 드롭 알림 <select class="gt2">${[[1, '모두 보기'], [3, '희귀 이상만'], [4, '영웅 이상만'], [5, '전설 이상만'], [99, '끄기']].map(([v, n]) => `<option value="${v}"${(s.gearToast ?? 1) === v ? ' selected' : ''}>${n}</option>`).join('')}</select></label>`);
+  c.querySelectorAll('input[data-k]').forEach((i) => i.addEventListener('change', (e) => { s.pop = { ...s.pop, [i.dataset.k]: e.target.checked }; }));
+  c.querySelector('.gt2').addEventListener('change', (e) => { s.gearToast = +e.target.value; });
+  p.appendChild(c);
+};
+
+// ---------- 자동 조합 (켜 두면 10초마다) ----------
+const _upd4 = P.update;
+P.update = function (dt) {
+  _upd4.call(this, dt);
+  if (this.s.autoCombine) {
+    this.rt.acT = (this.rt.acT || 0) + dt;
+    if (this.rt.acT >= 10) {
+      this.rt.acT = 0;
+      if (this.combinable().some((id) => this.s.coins >= this.combineCost(id))) this.combineAll();
+    }
+  }
+};
+const _gtc = U.gearToolsCard;
+U.gearToolsCard = function (p) {
+  _gtc.call(this, p);
+  const s = this.g.s, c = p.lastElementChild;
+  const l = h('label', 'tg', `<input type="checkbox"${s.autoCombine ? ' checked' : ''}> ⚒️ 자동 조합 켜기 (10초마다 · 골드가 있을 때만)`);
+  l.querySelector('input').addEventListener('change', (e) => { s.autoCombine = e.target.checked; });
+  c.insertBefore(l, c.children[1]);
+};
+
+// ---------- 의뢰: 항상 무작위 30개 · 조건을 채우면 자동 완료 → 새 의뢰 ----------
+const RQ_N = 30;
+const QUEST_PETS = () => PETS.filter((x) => x.src === 'quest');
+P.rqInit = function () {
+  this.s.rq ||= { list: [], seq: 0, done: 0 };
+  while (this.s.rq.list.length < RQ_N) this.s.rq.list.push(this.rqGen());
+};
+P.rqCount = function (q) { return q.type === 'kill' ? this.s.kills?.[q.target] || 0 : this.s.log.got?.[q.target] || 0; };
+P.rqProg = function (q) { return Math.max(0, this.rqCount(q) - q.base); };
+P.rqGen = function () {
+  const cl = this.combatLevel();
+  const reach = ZONES.filter((z) => z.lvl <= cl + 8);
+  const pool = (reach.length ? reach : [ZONES[0]]).slice(-6); // 갈 수 있는 가장 높은 지역 6곳
+  const z = pick(pool), t = z.t, r = Math.random();
+  let q;
+  if (r < 0.45) {
+    const m = pick(z.mons.slice(0, 3)), qty = R(15, 40) * 10;
+    q = { type: 'kill', target: m.id, qty, icon: m.icon, name: `${m.name} 토벌`, desc: `${m.name} ${fmt(qty)}마리 처치` };
+  } else if (r < 0.65) {
+    const m = z.mons[3], qty = R(5, 15);
+    q = { type: 'kill', target: m.id, qty, icon: '👑', name: `${m.name} 사냥`, desc: `👑 ${m.name} ${qty}마리 처치` };
+  } else {
+    const id = pick(['log', 'ore', 'raw', 'food', 'bar', 'herb', 'hide', 'cloth']) + t, qty = R(20, 50) * 10;
+    q = { type: 'got', target: id, qty, icon: ITEMS[id].icon, name: `${ITEMS[id].name} 납품`, desc: `${ITEMS[id].name} ${fmt(qty)}개 모으기` };
+  }
+  q.id = 'r' + ++this.s.rq.seq;
+  q.base = this.rqCount(q);
+  q.z = z.n;
+  q.t = t;
+  q.reward = this.rqReward(t);
+  return q;
+};
+// 보상: 💰 · 공훈 + (전설 이상 장비 / 의뢰 펫 / 기도서 / 귀한 묶음) 중 하나
+P.rqReward = function (t) {
+  const k = Math.random();
+  const rw = { coins: Math.round(2000 * (t + 1) ** 2 * (0.8 + Math.random() * 0.4)), cp: 2 + Math.floor(t / 3) };
+  if (k < 0.5) rw.gear = pick(Object.keys(GEAR)) + t;
+  else if (k < 0.65) rw.pet = 0.25;
+  else if (k < 0.75) rw.tome = true;
+  else rw.items = { whistle: 1, ['sstone' + t]: 2, ['pot_luck' + t]: 5 };
+  return rw;
+};
+P.rqRewardText = function (rw) {
+  const x = rw.gear ? `🎁 ${ITEMS[rw.gear].icon} ${ITEMS[rw.gear].name} (전설 이상)` : rw.pet ? `🐾 의뢰 펫 ${pct(rw.pet, 0)} (못 얻으면 영웅 이상 장비)` : rw.tome ? '📕 기도서 (모두 배웠으면 호루라기 3개)'
+    : '🎁 ' + Object.entries(rw.items).map(([id, n]) => `${ITEMS[id].icon}${ITEMS[id].name} x${n}`).join(', ');
+  return `💰${fmt(rw.coins)} · 공훈 +${rw.cp} · ${x}`;
+};
+P.rqClaim = function (q) {
+  const s = this.s, rw = q.reward;
+  s.coins += rw.coins;
+  s.cpQuest = (s.cpQuest || 0) + rw.cp;
+  let got = '';
+  const gearOf = (base, min) => { const id = gearId(base, rollRarity(min)); this.give(id, 1); s.log.gear[id] = (s.log.gear[id] || 0) + 1; this.autoEquipCheck(id); return ITEMS[id].name; };
+  if (rw.gear) got = gearOf(rw.gear, 5);
+  else if (rw.pet) {
+    const left = QUEST_PETS().filter((x) => !s.pets.includes(x.id));
+    if (left.length && Math.random() < rw.pet) { const pt = pick(left); s.pets.push(pt.id); if (!s.pet) s.pet = pt.id; this.dirty(); got = `🐾 ${pt.icon} ${pt.name}!`; this.celebrate(`🐾 ${pt.name}`); }
+    else got = gearOf(pick(Object.keys(GEAR)) + q.t, 4);
+  } else if (rw.tome) {
+    const left = TOMES.filter((tm) => !s.tomes.includes(tm.pr));
+    if (left.length) { const tm = pick(left); this.give(tm.id, 1); got = `📕 ${tm.n}`; } else { this.give('whistle', 3); got = '📯 펫 호루라기 x3'; }
+  } else { for (const [id, n] of Object.entries(rw.items)) this.give(id, n); got = Object.entries(rw.items).map(([id, n]) => `${ITEMS[id].icon}${n}`).join(' '); }
+  s.rq.done++;
+  this.toast(`📜 의뢰 완료! ${q.name} · 💰${fmt(rw.coins)} · ${got}`, 'pet');
+};
+P.rqTick = function () {
+  this.rqInit();
+  const L = this.s.rq.list;
+  for (let i = 0; i < L.length; i++) {
+    if (this.rqProg(L[i]) >= L[i].qty) { this.rqClaim(L[i]); L[i] = this.rqGen(); }
+  }
+};
+// 예전 의뢰(받기 · 완료) 대신 새 방식으로
+P.autoQuest = function () { this.rqTick(); };
+const _ti3 = P.townInit;
+P.townInit = function () { _ti3.call(this); this.s.autoQuest = true; this.rqInit(); };
+
+U.townFns = { ...U.townFns, quest: townRq };
+function townRq(ui, p, g, s) {
+  g.rqInit();
+  p.appendChild(h('div', 'card', `<b>📜 의뢰판</b> <span class="mut">완료 ${fmt(s.rq.done)}개</span>
+    <div class="mut">의뢰 ${RQ_N}개가 항상 붙어 있고, 조건을 채우면 저절로 완료되고 새 의뢰가 붙습니다 · 내 전투 레벨로 갈 수 있는 높은 지역에서 나옵니다 · 보상: 💰 · 공훈(재능) · 전설 이상 장비 / 의뢰 전용 펫 / 기도서 / 귀한 묶음</div>`));
+  const rows = s.rq.list.map((q) => ({ q, r: Math.min(1, g.rqProg(q) / q.qty) })).sort((a, b) => b.r - a.r);
+  for (const { q, r } of rows) {
+    const pr = Math.min(q.qty, g.rqProg(q));
+    p.appendChild(h('div', 'row', `<div class="ic">${q.icon}</div><div class="info"><div class="nm">${q.name} <span class="mut">${q.z}</span></div>
+      <div class="mut">${q.desc} · ${fmt(pr)} / ${fmt(q.qty)} (${pct(r, 0)})</div><div class="lvbar"><div style="width:${pct(r)}"></div></div>
+      <div class="mut sp">${g.rqRewardText(q.reward)}</div></div>`));
+  }
+}
+const _sig4 = U.sigX;
+U.sigX = function () { const s = this.g.s; return [..._sig4.call(this), s.rq?.done, s.autoCombine, s.pop]; };
+
+// ---------- 전리품 검색: 아이템 이름으로 떨어뜨리는 몬스터 찾기 ----------
+let LOOT_IDX = null;
+const lootIdx = () => LOOT_IDX ||= ZONES.flatMap((z, zi) => z.mons.flatMap((m) => m.loot.map((l) => ({ it: ITEMS[l.id], l, m, z, zi })))).filter((x) => x.it);
+U.lootSearch = function (p) {
+  const g = this.g;
+  const c = h('div', 'card', `<input type="search" class="lsq" placeholder="🔎 전리품 검색 (예: 루비, 검, 약초)" value="${(this.lq || '').replace(/"/g, '')}" style="width:100%;box-sizing:border-box"><div class="lsr"></div>`);
+  const box = c.querySelector('.lsr');
+  const show = () => {
+    const q = (this.lq || '').trim();
+    if (!q) { box.innerHTML = ''; return; }
+    const mul = g.dropMult();
+    const res = lootIdx().filter((x) => x.it.name.includes(q)).sort((a, b) => a.m.lvl - b.m.lvl);
+    box.innerHTML = res.length ? res.slice(0, 40).map((x, i) => {
+      const pr = x.l.fixed ? 1 : Math.min(1, x.l.p * mul);
+      return `<div class="lr ls" data-i="${i}"><span class="li">${x.it.icon}</span><span class="ln">${x.it.name} <span class="mut">← ${x.m.boss ? '👑' : ''}${x.m.name} Lv ${x.m.lvl} · ${x.z.n}</span></span><span class="lp${pr >= 1 ? ' all' : ''}">${pr >= 1 ? '항상' : pct(pr, pr < 0.01 ? 2 : 1)}</span></div>`;
+    }).join('') + (res.length > 40 ? `<div class="mut">${res.length - 40}개 더 있음 · 더 자세히 검색해 보세요</div>` : '') : '<div class="mut">떨어뜨리는 몬스터가 없습니다</div>';
+    box.querySelectorAll('.ls').forEach((r) => r.addEventListener('click', () => { const x = res[+r.dataset.i]; document.activeElement?.blur(); this.zone = x.zi; }));
+  };
+  c.querySelector('.lsq').addEventListener('input', (e) => { this.lq = e.target.value; show(); });
+  show();
+  p.appendChild(c);
 };

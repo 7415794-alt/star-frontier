@@ -1,7 +1,7 @@
 // 별무리 개척기 — 게임 데이터 (수치는 모두 이 게임용으로 설계)
 export const VERSION = '0.5.0';
 export const MAX_LVL = 200;
-export const SPEEDS = [1, 2, 4, 8, 16, 32];
+export const SPEEDS = [1, 2, 4, 8, 16, 32, 64, 128];
 
 // 레벨 L까지 필요한 누적 경험치
 export const XP_TABLE = (() => {
@@ -480,6 +480,11 @@ export const PETS = [
   { id: 'squid', name: '꼬마 오징어', icon: '🦑', src: 'sboss:fish', srcText: '심해의 군주 (스킬 보스) · 확률 1/40', p: 1 / 40, fx: { heal: 0.2, hpTick: 8 } },
   { id: 'ninja', name: '그림자 고양이', icon: '🐈‍⬛', src: 'sboss:steal', srcText: '그림자 도둑왕 (스킬 보스) · 확률 1/40', p: 1 / 40, fx: { thief: 0.08 } },
   { id: 'whale', name: '아기 별고래', icon: '🐋', src: 'wboss', srcText: '세계 보스 (기여도 높을수록) · 최대 1/60', p: 1 / 60, fx: { bossDmg: 0.12, drop: 0.06, hpTick: 10 } },
+  { id: 'dove', name: '전령 비둘기', icon: '🕊️', src: 'quest', srcText: '의뢰 보상 (낮은 확률)', p: 0, fx: { drop: 0.1, sxp: 0.05 } },
+  { id: 'beetle', name: '황금 풍뎅이', icon: '🪲', src: 'quest', srcText: '의뢰 보상 (낮은 확률)', p: 0, fx: { cspd: 0.12, pspd: 0.08 } },
+  { id: 'lion', name: '용맹한 아기 사자', icon: '🦁', src: 'quest', srcText: '의뢰 보상 (낮은 확률)', p: 0, fx: { atkPct: 0.08, strPct: 0.08 } },
+  { id: 'butterfly', name: '수정 나비', icon: '🦋', src: 'quest', srcText: '의뢰 보상 (낮은 확률)', p: 0, fx: { rngPct: 0.1, magPct: 0.1 } },
+  { id: 'bear', name: '수호 곰', icon: '🐻', src: 'quest', srcText: '의뢰 보상 (낮은 확률)', p: 0, fx: { defPct: 0.1, dr: 0.05 } },
   { id: 'cat', name: '축제 고양이', icon: '🐈', src: 'event', p: 0, price: 300, fx: { gspd: 0.1, pspd: 0.1 } },
   { id: 'fox', name: '불꽃 여우', icon: '🦊', src: 'event', p: 0, price: 500, fx: { drop: 0.08, gspd: 0.05 } },
   { id: 'rabbit', name: '달토끼', icon: '🐇', src: 'event', p: 0, price: 600, fx: { pspd: 0.1, cspd: 0.1 } },

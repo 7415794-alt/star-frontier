@@ -139,6 +139,7 @@ export class UI {
     // 알림
     while (rt.log.length) {
       const l = rt.log.shift();
+      if (this.popOk && !this.popOk(l.kind)) continue;
       const t = h('div', 'toast ' + l.kind, l.text);
       $('#toasts').appendChild(t);
       setTimeout(() => t.remove(), 2600);
@@ -208,11 +209,21 @@ export class UI {
       p.appendChild(sp);
     }
 
-    const zs = h('div', 'card', `<div style="display:flex;gap:6px;align-items:center"><button class="btn sm zp">◀</button><select class="zsel" style="flex:1;min-width:0">${ZONES.map((z, i) => `<option value="${i}"${i === this.zone ? ' selected' : ''}>${z.n} · Lv ${z.lvl}+ · ${TIERS[z.t].n}${((n) => (n ? ` · 🏹${n}/${z.mons.length * HUNT_TIERS.length}` : ''))(z.mons.reduce((a, m) => a + huntTier(s.kills?.[m.id]), 0))}</option>`).join('')}</select><button class="btn sm zn">▶</button></div><div class="mut">지역 ${this.zone + 1} / ${ZONES.length}</div>`);
-    $('.zsel', zs).addEventListener('change', (e) => { this.zone = +e.target.value; });
-    $('.zp', zs).addEventListener('click', () => { this.zone = Math.max(0, this.zone - 1); });
-    $('.zn', zs).addEventListener('click', () => { this.zone = Math.min(ZONES.length - 1, this.zone + 1); });
+    const curT = ZONES[this.zone].t, cl = g.combatLevel();
+    const zs = h('div', 'card zpick', `<div class="tstrip">${TIERS.map((T, t) => {
+      const far = T.lvl > cl + 25;
+      return `<button class="tc${t === curT ? ' on' : ''}${far ? ' far' : ''}" data-t="${t}" style="--tc:${T.c}"><b>${T.n}</b><small>Lv ${T.lvl}+</small></button>`;
+    }).join('')}</div>
+      <div class="zbtns">${ZONES.map((z, i) => [z, i]).filter(([z]) => z.t === curT).map(([z, i]) => {
+      const hn = z.mons.reduce((a, m) => a + huntTier(s.kills?.[m.id]), 0);
+      return `<button class="zb${i === this.zone ? ' on' : ''}" data-i="${i}"><b>${z.n}</b><small>Lv ${z.mons[0].lvl}~${z.mons[3].lvl}${hn ? ` · 🏹${hn}/${z.mons.length * HUNT_TIERS.length}` : ''}</small></button>`;
+    }).join('')}</div>`);
+    zs.querySelectorAll('.tc').forEach((b) => b.addEventListener('click', () => { this.zone = ZONES.findIndex((z) => z.t === +b.dataset.t); }));
+    zs.querySelectorAll('.zb').forEach((b) => b.addEventListener('click', () => { this.zone = +b.dataset.i; }));
     p.appendChild(zs);
+    const on = zs.querySelector('.tc.on');
+    if (on) zs.querySelector('.tstrip').scrollLeft = on.offsetLeft - zs.querySelector('.tstrip').clientWidth / 2 + on.offsetWidth / 2;
+    this.lootSearch?.(p);
     const zn = ZONES[this.zone];
     for (const m of zn.mons) {
       const v = g.vs(m);
@@ -268,11 +279,12 @@ export class UI {
       const pr = l.fixed ? 1 : Math.min(1, l.p * mul);
       const n = l.a === l.b ? `${l.a}` : `${l.a}~${l.b}`;
       const col = it.kind === 'gear' ? `color:${icol(it)}` : '';
-      return `<tr><td>${it.icon}</td><td style="${col}">${it.name}${it.kind === 'gear' ? `<br><small class="mut">${SLOTS[it.slot].name} · ${stText(it.st)}</small>` : ''}</td><td>x${n}</td><td style="text-align:right">${pr >= 1 ? '항상' : pct(pr, pr < 0.01 ? 2 : 1)}</td></tr>`;
+      return `<div class="lr"><span class="li">${it.icon}</span><span class="ln" style="${col}">${it.name}</span><span class="lq">x${n}</span><span class="lp${pr >= 1 ? ' all' : ''}">${pr >= 1 ? '항상' : pct(pr, pr < 0.01 ? 2 : 1)}</span></div>`;
     }).join('');
     const pet = m.boss ? PETS.find((x) => x.src === 'boss:' + m.z) : null;
     this.modal(`${m.icon} ${m.name} 전리품`, `<div class="mut">Lv ${m.lvl} · 💰 ${fmt(m.coins[0])}~${fmt(m.coins[1])} · 드롭률 보너스 ${sign(mul - 1, 0)} 적용</div>
-      <div style="max-height:55vh;overflow:auto;margin-top:6px"><table class="tbl loot" style="width:100%">${rows}${pet ? `<tr><td>${pet.icon}</td><td>펫 ${pet.name}</td><td>x1</td><td style="text-align:right">${pct(Math.min(1, pet.p * mul), 2)}</td></tr>` : ''}</table></div>`, [{ label: '닫기' }]);
+      <div class="mut">장비는 등급(일반~유물)이 무작위로 붙습니다</div>
+      <div class="ltbl">${rows}${pet ? `<div class="lr"><span class="li">${pet.icon}</span><span class="ln" style="color:#f0abfc">펫 ${pet.name}</span><span class="lq">x1</span><span class="lp">${pct(Math.min(1, pet.p * mul), 2)}</span></div>` : ''}</div>`, [{ label: '닫기' }]);
   }
 
   // ---------- 스킬 ----------
@@ -484,6 +496,7 @@ export class UI {
   // ---------- 설정 ----------
   tabMore(p) {
     const g = this.g, s = g.s;
+    this.popCard?.(p);
     const c = h('div', 'card', `<b>설정</b>
       <label class="tg"><input type="checkbox" id="optNums"${s.showNums ? ' checked' : ''}> 피해 숫자 표시</label>
       <label class="tg">자동 섭취: 체력 <select id="optEat">${[0, 0.3, 0.4, 0.5, 0.6, 0.7].map((v) => `<option value="${v}"${s.autoEat === v ? ' selected' : ''}>${v ? pct(v) + ' 이하' : '끄기'}</option>`).join('')}</select></label>`);
