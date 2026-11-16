@@ -193,7 +193,7 @@ P.traderStock = function () {
   const items = [];
   for (let i = 0; i < 6; i++) {
     const t = Math.floor(Math.random() * (maxT + 1));
-    const kind = pick(['pot', 'pot', 'gear', 'herb', 'gem', 'box', 'tool']);
+    const kind = pick(['pot', 'pot', 'gear', 'herb', 'gem', 'box']);
     let id, price, stock;
     if (kind === 'gear') { id = gearId(pick(Object.keys(GEAR)) + t, rollRarity(2)); price = ITEMS[id].value * 3; stock = 1; }
     else if (kind === 'pot') { id = pick(['atk', 'str', 'def', 'rng', 'mag', 'regen', 'boss', 'luck', 'gather', 'prod', 'craft', 'thief']); id = `pot_${id}${t}`; price = ITEMS[id].value * 4; stock = 3 + Math.floor(Math.random() * 5); }

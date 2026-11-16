@@ -185,6 +185,12 @@ TIERS.forEach((T, t) => {
 export const TOOL_SPEED = [0.05, 0.1, 0.16, 0.23, 0.31, 0.4, 0.5, 0.62, 0.75];
 for (let t = TOOL_SPEED.length; t < TIERS.length; t++) TOOL_SPEED.push(Math.round((0.75 + 0.1 * (t - 8)) * 100) / 100);
 export const TOOLS = { wood: { n: '벌목 도끼', icon: '🪓' }, mine: { n: '곡괭이', icon: '⛏️' }, fish: { n: '낚싯대', icon: '🎣' } };
+// 도구 업그레이드: t단계로 올리는 재료 · 골드 (도구는 종류마다 1개, 1~21단계)
+export const toolCost = (sk, t) => {
+  const n = 3 + 2 * t;
+  const mat = sk === 'fish' ? { ['log' + t]: n, ['hide' + t]: Math.ceil(n / 2) } : { ['bar' + t]: n, ['log' + t]: Math.ceil(n / 2) };
+  return { mat, coins: 150 * (t + 1) ** 2 };
+};
 TIERS.forEach((T, t) => {
   for (const [sk, tl] of Object.entries(TOOLS)) ITEMS[`tool_${sk}${t}`] = { name: `${T.n} ${tl.n}`, icon: tl.icon, kind: 'tool', skill: sk, t, gspd: TOOL_SPEED[t], req: [sk, T.lvl], value: 40 * (t + 1) ** 2 };
 });
@@ -413,9 +419,6 @@ TIERS.forEach((T, t) => {
     addAct('alch', { id: `pot_${P.k}${t}`, group: T.n + ' 물약', name: `${T.n} ${P.n} 물약`, icon: P.icon, lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * (combat ? 1.1 : 1.4)), in: combat ? { ['herb' + t]: 2, ['bone' + t]: 1 } : { ['herb' + t]: 3, ['bar' + t]: 1 }, out: { [`pot_${P.k}${t}`]: 1 } });
   }
   // 도구 (대장) · 생활 장신구 (공예)
-  addAct('smith', { id: `tool_wood${t}`, group: '도구 제작', craft: true, name: `${T.n} 벌목 도끼`, icon: '🪓', lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 2), in: { ['bar' + t]: 2, ['log' + t]: 1 }, out: { [`tool_wood${t}`]: 1 } });
-  addAct('smith', { id: `tool_mine${t}`, group: '도구 제작', craft: true, name: `${T.n} 곡괭이`, icon: '⛏️', lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 2), in: { ['bar' + t]: 2, ['log' + t]: 1 }, out: { [`tool_mine${t}`]: 1 } });
-  addAct('craft', { id: `tool_fish${t}`, group: '도구 제작', craft: true, name: `${T.n} 낚싯대`, icon: '🎣', lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 2), in: { ['log' + t]: 2, ['hide' + t]: 1 }, out: { [`tool_fish${t}`]: 1 } });
   for (const L of LIFE_GEAR) addAct('craft', { id: `life_${L.k}${t}`, group: '생활 장신구', craft: true, name: `${T.n} ${L.n}`, icon: L.icon, lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 3), in: { ['gem' + t]: 1, ['bar' + t]: 1 }, out: { [`life_${L.k}${t}`]: 1 } });
   addAct('craft', { id: 'arrow' + t, group: '화살 제작', name: `${T.n} 화살 x40`, icon: '➶', lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 1.2), in: { ['log' + t]: 1, ['bar' + t]: 1 }, out: { ['arrow' + t]: 40 } });
   addAct('ench', { id: 'rune' + t, group: '룬 새기기', name: `${T.n} 룬 x40`, icon: '🔹', lvl: T.lvl, time: 3, xp: Math.round(GATHER_XP[t] * 1.2), in: { ['cloth' + t]: 1, ['ore' + t]: 1 }, out: { ['rune' + t]: 40 } });

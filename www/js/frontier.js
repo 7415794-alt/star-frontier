@@ -1,5 +1,5 @@
 // 별무리 개척기 — 5차: 탄약(화살 · 룬) · 스킬 보스 · 세계 보스 · 초희귀 드롭 · 기도서 · 펫 호루라기 · 보스 축하 · 처치 효과
-import { ITEMS, TIERS, SKILL, ACTIONS, PETS, PRAYERS, TOMES, GEAR, STYLES, STATS, gearId, rollRarity, monDef, penChance, defEff, MON_ROLL, monFloor, COMBAT_TICK, monAtkStr } from './data.js';
+import { ITEMS, TIERS, SKILL, ACTIONS, PETS, PRAYERS, TOMES, GEAR, STYLES, STATS, gearId, rollRarity, monDef, penChance, defEff, MON_ROLL, monFloor, COMBAT_TICK, monAtkStr, TOOLS, toolCost } from './data.js';
 import { Game, C } from './game.js';
 import { UI } from './ui.js';
 
@@ -967,3 +967,68 @@ U.qMark = function (ids, small = false) {
   const n = ids.reduce((a, id) => a + (this._qm[id] || 0), 0);
   return n ? `<span class="qm" title="의뢰 ${n}개">${small ? '📜' : `📜${n > 1 ? n : ''}`}</span>` : '';
 };
+
+// ====================== 스킬 도구: 종류마다 1개 · 21단계 업그레이드 ======================
+P.toolTier = function (sk) { const it = ITEMS[this.s.tools?.[sk]]; return it ? it.t : -1; };
+// 예전 저장: 가방에 있던 도구는 가장 좋은 것 하나로 합치고 나머지는 팔아서 골드로
+const _townInitT = P.townInit;
+P.townInit = function () {
+  _townInitT.call(this);
+  const s = this.s;
+  if (s.toolsV === 2) return;
+  let refund = 0;
+  for (const [id, n] of Object.entries(s.bank)) {
+    const it = ITEMS[id];
+    if (it?.kind !== 'tool') continue;
+    const cur = ITEMS[s.tools?.[it.skill]];
+    if (!cur || it.t > cur.t) { if (cur) refund += cur.value; s.tools = { ...s.tools, [it.skill]: id }; refund += it.value * (n - 1); }
+    else refund += it.value * n;
+    delete s.bank[id];
+  }
+  if (refund) s.coins += refund;
+  s.toolsV = 2;
+};
+P.toolNext = function (sk) {
+  const t = this.toolTier(sk) + 1;
+  if (t >= TIERS.length) return null;
+  const c = toolCost(sk, t);
+  const lvOk = this.lvl(sk) >= TIERS[t].lvl;
+  const matOk = Object.entries(c.mat).every(([id, n]) => this.have(id) >= n);
+  return { t, ...c, lvOk, matOk, coinOk: this.s.coins >= c.coins, ok: lvOk && matOk && this.s.coins >= c.coins };
+};
+P.upgradeTool = function (sk) {
+  const nx = this.toolNext(sk);
+  if (!nx?.ok) return false;
+  for (const [id, n] of Object.entries(nx.mat)) this.give(id, -n);
+  this.s.coins -= nx.coins;
+  this.s.tools = { ...this.s.tools, [sk]: `tool_${sk}${nx.t}` };
+  this.dirty?.();
+  this.toast(`🛠️ ${ITEMS[`tool_${sk}${nx.t}`].name} (${nx.t + 1}단계)로 업그레이드!`, 'info');
+  return true;
+};
+// 가방에서 장착 · 해제는 이제 쓰지 않음
+P.unequipTool = function () {};
+P.bestTool = function () { return null; };
+U.toolShop = function (p) {
+  const g = this.g, s = g.s;
+  p.appendChild(h('div', 'h', '🛠️ 도구 제작'));
+  p.appendChild(h('div', 'card mut', `도구는 종류마다 1개만 가지고, 재료와 골드로 한 단계씩 올립니다 (1~${TIERS.length}단계). 단계가 오를수록 채집 속도가 빨라집니다. 해당 스킬 레벨이 단계 레벨 이상이어야 합니다.`));
+  for (const [sk, T0] of Object.entries(TOOLS)) {
+    const cur = ITEMS[s.tools?.[sk]], t = g.toolTier(sk), nx = g.toolNext(sk);
+    const dots = TIERS.map((T, i) => `<i style="background:${i <= t ? T.c : 'var(--line)'}"></i>`).join('');
+    let body;
+    if (!nx) body = '<div class="mut">최고 단계에 도달했습니다 ✨</div>';
+    else {
+      const need = Object.entries(nx.mat).map(([id, n]) => `<span style="color:${g.have(id) >= n ? 'var(--good)' : '#f87171'}">${ITEMS[id].icon}${ITEMS[id].name} ${fmt(g.have(id))}/${fmt(n)}</span>`).join(' · ');
+      body = `<div>다음: <b style="color:${TIERS[nx.t].c}">${TIERS[nx.t].n} ${T0.n}</b> <span class="mut">(${nx.t + 1}단계 · 채집 속도 +${pct(ITEMS[`tool_${sk}${nx.t}`].gspd)})</span></div>
+        <div class="mut">필요: <span style="color:${nx.lvOk ? 'var(--good)' : '#f87171'}">${SKILL[sk].icon}${SKILL[sk].name} Lv ${TIERS[nx.t].lvl}</span> · ${need} · <span style="color:${nx.coinOk ? 'var(--good)' : '#f87171'}">🪙 ${fmt(nx.coins)}</span></div>
+        <button class="btn sm ${nx.ok ? 'pri' : ''} tup"${nx.ok ? '' : ' disabled'}>⬆️ 업그레이드</button>`;
+    }
+    const c = h('div', 'card tshop', `<b>${T0.icon} ${cur ? cur.name : T0.n + ' (없음)'}</b> <span class="mut">${t + 1} / ${TIERS.length}단계${cur ? ` · 채집 속도 +${pct(cur.gspd)}` : ''}</span>
+      <div class="tdots">${dots}</div>${body}`);
+    c.querySelector('.tup')?.addEventListener('click', () => g.upgradeTool(sk));
+    p.appendChild(c);
+  }
+};
+const _sigT = U.sigX;
+U.sigX = function () { return [..._sigT.call(this), this.g.s.tools, this.skillSel === 'tools' ? this.g.s.coins : 0]; };

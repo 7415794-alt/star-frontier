@@ -309,6 +309,14 @@ export class UI {
       }
       p.appendChild(list);
     }
+    if (this.toolShop) {
+      const tc = h('div', 'slot', `<div class="n">🛠️ 도구 제작 <span class="mut">${Object.keys(TOOLS).map((sk) => `${TOOLS[sk].icon}${g.toolTier(sk) + 1}`).join(' ')}</span></div><div class="t">도구는 종류마다 1개 · 재료와 골드로 21단계까지 업그레이드</div>`);
+      tc.style.cursor = 'pointer';
+      if (this.skillSel === 'tools') tc.style.borderColor = 'var(--acc)';
+      tc.addEventListener('click', () => { this.skillSel = 'tools'; });
+      p.appendChild(tc);
+      if (this.skillSel === 'tools') { this.toolShop(p); return; }
+    }
     const k = SKILL[this.skillSel];
     p.appendChild(h('div', 'h', `${k.icon} ${k.name} Lv ${g.lvl(k.id)} <span class="mut">${this.xpText(k.id)}</span>`));
     const goal = s.goals?.[k.id];
@@ -319,10 +327,8 @@ export class UI {
     if (k.id === 'div') { this.tabDiv(p); return; }
     if (TOOLS[k.id]) {
       const cur = ITEMS[s.tools?.[k.id]];
-      const best = g.bestTool(k.id);
-      const tc = h('div', 'card', `${TOOLS[k.id].icon} 도구: <b>${cur ? cur.name + ` (채집 속도 +${pct(cur.gspd)})` : '없음'}</b> ${best && (!cur || ITEMS[best].t > cur.t) ? `<button class="btn sm pri tb">${ITEMS[best].name} 장착</button>` : ''}${cur ? '<button class="btn sm tu">해제</button>' : ''}<div class="mut">도구는 대장 · 공예에서 만들고, 채집 중 희귀 발견(1/250)으로 상자를 얻습니다</div>`);
-      $('.tb', tc)?.addEventListener('click', () => g.equipTool(best));
-      $('.tu', tc)?.addEventListener('click', () => g.unequipTool(k.id));
+      const tc = h('div', 'card', `${TOOLS[k.id].icon} 도구: <b>${cur ? `${cur.name} (${cur.t + 1}단계 · 채집 속도 +${pct(cur.gspd)})` : '없음'}</b> <button class="btn sm tb">🛠️ 도구 제작</button>`);
+      $('.tb', tc).addEventListener('click', () => { this.skillSel = 'tools'; });
       p.appendChild(tc);
     }
     if (k.type === 'make' || k.type === 'gather') this.effCard(p);
