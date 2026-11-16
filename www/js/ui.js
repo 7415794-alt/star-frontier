@@ -28,6 +28,7 @@ const stText = (st) => Object.entries(st || {}).filter(([, v]) => v).map(([k, v]
 const sign = (v, d = 1) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(d)}%`;
 const time = (sec) => sec >= 3600 ? `${Math.floor(sec / 3600)}시간 ${Math.floor((sec % 3600) / 60)}분` : sec >= 60 ? `${Math.floor(sec / 60)}분 ${Math.floor(sec % 60)}초` : `${sec.toFixed(1)}초`;
 
+const sumFx = (list) => { const o = {}; for (const f of list) for (const [k, v] of Object.entries(f || {})) o[k] = Math.round(((o[k] || 0) + v) * 10000) / 10000; return o; };
 export class UI {
   constructor(game, hooks) {
     this.g = game;
@@ -424,10 +425,8 @@ export class UI {
     const prs = PRAYERS.filter((x) => (g.prayerOpen ? g.prayerOpen(x) : g.lvl('div') >= x.lvl));
     const pets = PETS.filter((x) => s.pets.includes(x.id));
     const fav = (list, favs) => [...list].sort((a, b) => favs.includes(b.id) - favs.includes(a.id));
-    const c = h('div', 'card', `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">🙏 <select class="sp1"><option value="">기도 없음</option>${fav(prs, s.favPrayer).map((x) => `<option value="${x.id}"${s.prayer === x.id ? ' selected' : ''}>${s.favPrayer.includes(x.id) ? '★' : ''}${x.icon} ${x.name} · ${spText(x.fx)}</option>`).join('')}</select>
-      🐾 <select class="sp2"><option value="">펫 없음</option>${fav(pets, s.favPet).map((x) => `<option value="${x.id}"${s.pet === x.id ? ' selected' : ''}>${s.favPet.includes(x.id) ? '★' : ''}${x.icon} ${x.name} · ${spText(x.fx)}</option>`).join('')}</select></div>`);
-    $('.sp1', c).addEventListener('change', (e) => { s.prayer = e.target.value || null; g.dirty(); });
-    $('.sp2', c).addEventListener('change', (e) => { s.pet = e.target.value || null; g.dirty(); });
+    void fav;
+    const c = h('div', 'card mut', `✅ 상시 적용 중: 🙏 기도 ${prs.length}개 · 🐾 펫 ${pets.length}마리 <span class="nw">(얻으면 바로 모두 적용)</span>`);
     p.appendChild(c);
   }
 
@@ -466,7 +465,7 @@ export class UI {
   // ---------- 신성 ----------
   tabDiv(p) {
     const g = this.g, s = g.s;
-    p.appendChild(h('div', 'card', `<b>✨ 신성 Lv ${g.lvl('div')}</b> <span class="mut">${this.xpText('div')}</span>${this.lvBar('div')}<div class="mut">몬스터 뼈를 묻어 수련 · 기도는 1개만 켤 수 있고 켜 두면 계속 유지됩니다</div>`));
+    p.appendChild(h('div', 'card', `<b>✨ 신성 Lv ${g.lvl('div')}</b> <span class="mut">${this.xpText('div')}</span>${this.lvBar('div')}<div class="mut">몬스터 뼈를 묻어 수련 · 해금한 기도는 모두 상시 적용됩니다</div>`));
     p.appendChild(h('div', 'h', '🦴 뼈 묻기'));
     const bones = Object.keys(s.bank).filter((id) => ITEMS[id].kind === 'bone');
     if (!bones.length) p.appendChild(h('div', 'mut', '뼈가 없습니다. 몬스터를 처치하면 얻습니다.'));
@@ -477,13 +476,10 @@ export class UI {
       p.appendChild(r);
     }
     p.appendChild(h('div', 'h', '🙏 기도'));
+    p.appendChild(h('div', 'card', `<b>합계</b> <span class="sp">${spText(sumFx(g.openPrayers().map((x) => x.fx))) || '없음'}</span>`));
     for (const pr of [...PRAYERS].sort((a, b) => s.favPrayer.includes(b.id) - s.favPrayer.includes(a.id))) {
       const lock = g.prayerOpen ? !g.prayerOpen(pr) : g.lvl('div') < pr.lvl;
-      const on = s.prayer === pr.id;
-      const fv = s.favPrayer.includes(pr.id);
-      const r = h('div', 'row' + (lock ? ' lock' : '') + (on ? ' on' : ''), `<div class="ic">${pr.icon}</div><div class="info"><div class="nm">${pr.name} <span class="mut">Lv ${pr.lvl}${pr.tome ? (s.tomes || []).includes(pr.id) ? ' · 📕 배움' : ' · 📕 기도서 필요' : ''}</span></div><div class="mut sp">★ ${spText(pr.fx)}</div></div><button class="btn sm fv">${fv ? '⭐' : '☆'}</button><button class="btn on1"${lock ? ' disabled' : ''}>${lock ? '🔒' : on ? '끄기' : '켜기'}</button>`);
-      $('.on1', r).addEventListener('click', () => { s.prayer = on ? null : pr.id; g.dirty(); });
-      $('.fv', r).addEventListener('click', () => { s.favPrayer = fv ? s.favPrayer.filter((x) => x !== pr.id) : [...s.favPrayer, pr.id]; });
+      const r = h('div', 'row' + (lock ? ' lock' : ' on'), `<div class="ic">${pr.icon}</div><div class="info"><div class="nm">${pr.name} <span class="mut">Lv ${pr.lvl}${pr.tome ? (s.tomes || []).includes(pr.id) ? ' · 📕 배움' : ' · 📕 기도서 필요' : ''}</span></div><div class="mut sp">★ ${spText(pr.fx)}</div></div><span class="${lock ? 'mut' : 'ok'} nw">${lock ? '🔒 잠김' : '✅ 적용 중'}</span>`);
       p.appendChild(r);
     }
   }
@@ -491,14 +487,12 @@ export class UI {
   // ---------- 펫 ----------
   tabPets(p) {
     const g = this.g, s = g.s;
-    p.appendChild(h('div', 'card mut', `펫 ${s.pets.length} / ${PETS.length} · 1마리만 데리고 다니며, 펫마다 보너스가 다릅니다`));
+    p.appendChild(h('div', 'card', `펫 ${s.pets.length} / ${PETS.length} · <span class="mut">가진 펫은 모두 상시 적용됩니다</span><div><b>합계</b> <span class="sp">${spText(sumFx(s.pets.map((id) => PETS.find((x) => x.id === id)?.fx))) || '없음'}</span></div>`));
     for (const pet of [...PETS].sort((a, b) => s.favPet.includes(b.id) - s.favPet.includes(a.id))) {
       const own = s.pets.includes(pet.id);
-      const on = s.pet === pet.id;
       const src = pet.srcText ? pet.srcText : pet.src.startsWith('boss:') ? `${MONSTER_OF('m' + pet.src.slice(5) + '_3')?.name} 처치 · 확률 1/${Math.round(1 / pet.p)}` : pet.src === 'event' ? '🎉 별빛 축제 상점' : `${SKILL[pet.src].name} 행동 · 확률 1/${Math.round(1 / pet.p)}`;
-      const r = h('div', 'row' + (own ? '' : ' lock') + (on ? ' on' : ''), `<div class="ic">${own ? pet.icon : '❔'}</div><div class="info"><div class="nm">${own ? pet.name : '???'}</div><div class="mut">${src}</div><div class="mut sp">★ ${spText(pet.fx)}</div></div>${own ? `<button class="btn sm fv">${s.favPet.includes(pet.id) ? '⭐' : '☆'}</button>` : ''}<button class="btn on1"${own ? '' : ' disabled'}>${on ? '보내기' : '데리고 다니기'}</button>`);
-      $('.on1', r).addEventListener('click', () => { s.pet = on ? null : pet.id; g.dirty(); });
-      $('.fv', r)?.addEventListener('click', () => { const f = s.favPet.includes(pet.id); s.favPet = f ? s.favPet.filter((x) => x !== pet.id) : [...s.favPet, pet.id]; });
+      const r = h('div', 'row' + (own ? ' on' : ' lock'), `<div class="ic">${own ? pet.icon : '❔'}</div><div class="info"><div class="nm">${own ? pet.name : '???'}</div><div class="mut">${src}</div><div class="mut sp">★ ${spText(pet.fx)}</div></div><span class="${own ? 'ok' : 'mut'} nw">${own ? '✅ 적용 중' : '미획득'}</span>`);
+      if (own) { r.style.cursor = 'pointer'; r.title = '눌러서 화면에 함께 다니는 펫으로'; r.addEventListener('click', () => { s.pet = pet.id; }); }
       p.appendChild(r);
     }
   }

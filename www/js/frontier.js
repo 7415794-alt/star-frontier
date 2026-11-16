@@ -483,7 +483,7 @@ import { QUESTS } from './town.js';
 // 장착 비교 결과 기억 (같은 상태에서 다시 계산하지 않아 렉 감소)
 P.stateKey = function () {
   const s = this.s;
-  return JSON.stringify([s.equip, s.prayer, s.pet, Object.keys(s.effects || {}), ['atk', 'str', 'def', 'rng', 'mag'].map((k) => this.lvl(k)), this.ammoId(), s.tomes?.length, Object.keys(s.museum || {}).length, s.talents]);
+  return JSON.stringify([s.equip, s.pets.length, this.lvl('div'), Object.keys(s.effects || {}), ['atk', 'str', 'def', 'rng', 'mag'].map((k) => this.lvl(k)), this.ammoId(), s.tomes?.length, Object.keys(s.museum || {}).length, s.talents]);
 };
 const _ed = P.equipDelta;
 P.equipDelta = function (id) {

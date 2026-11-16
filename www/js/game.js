@@ -173,17 +173,17 @@ export class Game {
       for (const [k, v] of Object.entries(it.st)) b.st[k] += v;
       addSp(it.sp);
     }
-    addSp(this.prayer()?.fx);
+    for (const pr of this.openPrayers()) addSp(pr.fx);
     addSp(ITEMS[this.s.life]?.fx);
     for (const e of Object.values(this.s.effects || {})) addSp(ITEMS[e.id]?.fx);
     for (const f of this.extraSources()) addSp(f);
-    const pet = this.s.pet && this.s.pets.includes(this.s.pet) ? PET[this.s.pet] : null;
-    addSp(pet?.fx);
+    for (const id of this.s.pets) addSp(PET[id]?.fx);
     this.rt.cache = b;
     return b;
   }
   sp(k) { return this.bonuses().sp[k] || 0; }
   extraSources() { return []; } // 박물관 · 재능 등 (4차)
+  openPrayers() { return PRAYERS.filter((x) => (this.prayerOpen ? this.prayerOpen(x) : this.lvl('div') >= x.lvl)); }
   prayer() { const p = PRAYERS.find((x) => x.id === this.s.prayer); return p && this.lvl('div') >= p.lvl ? p : null; }
   weapon() { return ITEMS[this.s.equip.weapon] || null; }
   style() { return this.weapon()?.style || 'melee'; }
