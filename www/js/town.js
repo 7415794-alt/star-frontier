@@ -8,7 +8,7 @@ const pct = (v, d = 1) => `${(v * 100).toFixed(d)}%`;
 const spText = (sp) => Object.entries(sp || {}).filter(([k]) => SPECIAL_NAMES[k] && sp[k]).map(([k, v]) => `${SPECIAL_NAMES[k]} +${FLAT_SP.has(k) ? fmt(v) : pct(v)}`).join(', ');
 
 // ---------- 의뢰 ----------
-const RANKS = ['E', 'D', 'C', 'B', 'A', 'S', 'S', 'SS'];
+const RANKS = ['E', 'D', 'C', 'B', 'A', 'S', 'S', 'SS', 'SS'];
 const RANK_CP = { E: 1, D: 1, C: 2, B: 2, A: 3, S: 4, SS: 6 };
 export const QUESTS = [];
 ZONES.forEach((z, t) => {
@@ -43,7 +43,7 @@ export const TALENTS = [
 const talentCost = (L) => 1 + Math.floor(L / 5);
 
 // ---------- 박물관 ----------
-const MUSEUM_TIER = [1, 2, 3, 4.5, 6, 8, 10.5, 13];
+const MUSEUM_TIER = [1, 2, 3, 4.5, 6, 8, 10.5, 13, 16];
 const MUSEUM_BASE = {
   melee: { atkPct: 0.0011, strPct: 0.0011, defPct: 0.0013, dr: 0.0006 },
   ranged: { rngPct: 0.0023, defPct: 0.0008, ls: 0.0001 },

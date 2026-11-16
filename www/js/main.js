@@ -2,6 +2,7 @@
 import { Game, newState, loadState, saveState, SAVE_KEY } from './game.js';
 import { UI } from './ui.js';
 import './town.js';
+import './frontier.js';
 import { ITEMS, SKILL } from './data.js';
 
 const state = loadState() || newState();

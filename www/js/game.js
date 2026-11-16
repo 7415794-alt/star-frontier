@@ -318,6 +318,8 @@ export class Game {
     if (ty === 'make') sp *= 1 + (a.craft ? this.sp('cspd') : this.sp('pspd'));
     return a.time / sp;
   }
+  // 도둑질 성공률: 레벨 차이로 최대 90% + 도둑질 성공률 보너스 (최대 99%)
+  stealChance(a) { return Math.min(0.99, Math.min(0.9, 0.55 + 0.012 * (this.lvl('steal') - a.lvl)) + this.sp('thief')); }
   toolSpeed(skill) { return ITEMS[this.s.tools?.[skill]]?.gspd || 0; }
   isCraft(skill, a) { return SKILL[skill].type === 'make' && !!a.craft;
   }
@@ -571,6 +573,16 @@ export class Game {
       this.rt.prog -= 1;
       if (a.in && !this.hasInputs(a)) { this.stop(); return; }
       for (const [id, n] of Object.entries(a.in || {})) this.give(id, -n);
+      // 도둑질: 실패하면 들켜서 한 번 쉼
+      if (a.thief && Math.random() >= this.stealChance(a)) {
+        this.rt.prog -= 1;
+        this.useEffects('act');
+        if (this.rt.sess) this.rt.sess.fails = (this.rt.sess.fails || 0) + 1;
+        this.fx('hero', '들킴!', 'hurt');
+        continue;
+      }
+      if (a.coins) { const c = a.coins[0] + Math.floor(Math.random() * (a.coins[1] - a.coins[0] + 1)); this.s.coins += c; if (this.rt.sess) this.rt.sess.coins += c; }
+      for (const [lid, lp, la, lb] of a.loot || []) if (Math.random() < lp * (1 + this.sp('drop'))) this.gain(lid, la + Math.floor(Math.random() * (lb - la + 1)));
       if (a.burn && Math.random() < this.burnChance(a)) this.gain('burnt', 1);
       else for (const [id, n] of Object.entries(a.out || {})) this.gain(id, n);
       if (a.gem && Math.random() < 0.01) { this.gain(a.gem, 1); this.toast(`💎 ${ITEMS[a.gem].name} 발견!`, 'loot'); }

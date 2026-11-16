@@ -18,7 +18,10 @@ const potText = (it) => {
   const mins = Object.entries(it.fx).filter(([k]) => k.endsWith('Min')).map(([k, v]) => `최소 +${v}`);
   return `${spText(it.fx)}${mins.length ? ` (${mins.join(', ')})` : ''} · ${it.uses}${USE_NAMES[it.use] === '처치' ? '마리 처치' : '번 ' + USE_NAMES[it.use]}`;
 };
-const itemInfo = (it) => (it.kind === 'potion' ? potText(it) : it.kind === 'tool' ? `${SKILL[it.skill].name} 채집 속도 +${pct(it.gspd)} · 요구 ${SKILL[it.req[0]].name} ${it.req[1]}` : it.kind === 'life' ? `${spText(it.fx)} · 요구 공예 ${it.req[1]}` : '');
+const itemInfo = (it) => (it.kind === 'ammo' ? `${STATS[Object.keys(it.st)[0]].name} +${Object.values(it.st)[0]} · 공격마다 1개 · 요구 ${SKILL[it.req[0]].name} ${it.req[1]}`
+  : it.kind === 'whistle' ? '보스 펫 확률 +15% · 30분 (게임 시간)'
+    : it.kind === 'tome' ? `기도 배우기: ${PRAYERS.find((x) => x.id === it.pr)?.name}`
+      : it.kind === 'potion' ? potText(it) : it.kind === 'tool' ? `${SKILL[it.skill].name} 채집 속도 +${pct(it.gspd)} · 요구 ${SKILL[it.req[0]].name} ${it.req[1]}` : it.kind === 'life' ? `${spText(it.fx)} · 요구 공예 ${it.req[1]}` : '');
 const icol = (it) => (it.r > 1 ? it.rc : TIERS[it.t]?.c || 'inherit');
 const stVal = (k, v) => (STATS[k].pct ? pct(v, 1) : fmt(v));
 const stText = (st) => Object.entries(st || {}).filter(([, v]) => v).map(([k, v]) => `${STATS[k].icon}${STATS[k].name} +${stVal(k, v)}`).join(' ');
@@ -53,7 +56,7 @@ export class UI {
   // 바뀐 게 있을 때만 패널을 다시 그림 (스크롤 유지)
   signature() {
     const s = this.g.s;
-    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.favPrayer, s.favPet, s.sfx, s.cb, Object.values(s.effects || {}).map((e) => e.id), s.tools, s.life, s.autoPot, s.quests, s.talents, s.museum, s.trader, s.candy, this.town, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0]);
+    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.favPrayer, s.favPet, s.sfx, s.cb, Object.values(s.effects || {}).map((e) => e.id), s.tools, s.life, s.autoPot, s.quests, s.talents, s.museum, s.trader, s.candy, this.town, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0, this.sigX ? this.sigX() : 0]);
   }
   render(force = false) {
     const sig = this.signature();
@@ -76,7 +79,7 @@ export class UI {
     $('#spdBtn').textContent = 'x' + g.speed();
     const act = $('#act');
     const A = s.activity;
-    const key = A ? A.type + (A.mon || A.act || A.bone) : 'idle';
+    const key = A ? A.type + (A.mon || A.act || A.bone || A.id) : 'idle';
     if (act._k !== key) { act._k = key; act.innerHTML = this.actHtml(); act._fl = new Set(); }
     if (A?.type === 'combat') {
       const m = rt.mon;
@@ -111,6 +114,7 @@ export class UI {
       const left = aa?.in ? Math.min(...Object.entries(aa.in).map(([id, n]) => Math.floor(g.have(id) / n))) : null;
       $('.info', act).textContent = `${SKILL[sk].name} Lv ${g.lvl(sk)} · ${this.xpText(sk)}` + (A.type === 'bury' ? ` · 남은 뼈 ${fmt(g.have(A.bone))}` : '') + (left != null ? ` · 남은 횟수 ${fmt(left)}` : '');
     }
+    this.frameX?.(act, A);
     // 물약 남은 횟수 (다시 그리지 않고 숫자만)
     document.querySelectorAll('.efl').forEach((e) => { const x = Object.values(s.effects || {}).find((y) => y.id === e.dataset.id); if (x) e.textContent = x.left; });
     // 이번 세션 기록 (0.5초마다)
@@ -135,6 +139,8 @@ export class UI {
   actHtml() {
     const g = this.g, A = g.s.activity;
     if (!A) return '<div class="idle">쉬는 중 · 전투 또는 스킬을 골라 시작하세요</div>';
+    const xh = this.actHtmlX?.(A);
+    if (xh) return xh;
     if (A.type === 'combat') {
       const m = MONSTER_OF(A.mon);
       return `<div class="duel">
@@ -177,6 +183,7 @@ export class UI {
       <div class="mut" style="margin-top:4px">최종 스탯 = 레벨 + 장비 · 경험치: ${st === 'melee' ? '공격 · 힘' : STYLES[st].name} 100% + 방어 70%</div>`);
     p.appendChild(card);
     this.effCard(p);
+    this.ammoCard?.(p);
     if (st === 'magic') {
       const sp = h('div', 'seg');
       for (const x of SPELLS) {
@@ -289,9 +296,9 @@ export class UI {
       if (a.group && a.group !== group) { group = a.group; p.appendChild(h('div', 'mut', group)); }
       const lock = g.lvl(k.id) < a.lvl;
       const on = s.activity?.type === 'skill' && s.activity.act === a.id && s.activity.skill === k.id;
-      const io = [a.in ? '필요 ' + Object.entries(a.in).map(([id, n]) => `${ITEMS[id].icon}${ITEMS[id].name} ${n} (보유 ${fmt(g.have(id))})`).join(', ') : '', '획득 ' + Object.entries(a.out).map(([id, n]) => `${ITEMS[id].icon}${ITEMS[id].name} ${n}`).join(', ')].filter(Boolean).join(' · ');
+      const io = a.thief ? `성공률 <b>${pct(g.stealChance(a))}</b> · 💰${fmt(a.coins[0])}~${fmt(a.coins[1])} · ${a.loot.map((l) => ITEMS[l[0]].icon).join('')} · 들키면 한 번 쉼` : [a.in ? '필요 ' + Object.entries(a.in).map(([id, n]) => `${ITEMS[id].icon}${ITEMS[id].name} ${n} (보유 ${fmt(g.have(id))})`).join(', ') : '', '획득 ' + Object.entries(a.out).map(([id, n]) => `${ITEMS[id].icon}${ITEMS[id].name} ${n}`).join(', ')].filter(Boolean).join(' · ');
       const burn = g.burnChance(a);
-      const it = ITEMS[Object.keys(a.out)[0]];
+      const it = ITEMS[Object.keys(a.out)[0]] || {};
       const gearInfo = it.kind === 'gear' ? `<div class="mut">${this.gearLine(it)} · 등급 무작위</div>` : itemInfo(it) ? `<div class="mut sp">${itemInfo(it)}</div>` : '';
       const r = h('div', 'row' + (lock ? ' lock' : '') + (on ? ' on' : ''), `<div class="ic">${a.icon}</div>
         <div class="info"><div class="nm">${a.name} <span class="mut">Lv ${a.lvl}</span></div><div class="mut">${io}</div>${gearInfo}
@@ -367,7 +374,7 @@ export class UI {
   // 스킬 화면에서 바로 펫 · 기도 바꾸기
   swapStrip(p) {
     const g = this.g, s = g.s;
-    const prs = PRAYERS.filter((x) => g.lvl('div') >= x.lvl);
+    const prs = PRAYERS.filter((x) => (g.prayerOpen ? g.prayerOpen(x) : g.lvl('div') >= x.lvl));
     const pets = PETS.filter((x) => s.pets.includes(x.id));
     const fav = (list, favs) => [...list].sort((a, b) => favs.includes(b.id) - favs.includes(a.id));
     const c = h('div', 'card', `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">🙏 <select class="sp1"><option value="">기도 없음</option>${fav(prs, s.favPrayer).map((x) => `<option value="${x.id}"${s.prayer === x.id ? ' selected' : ''}>${s.favPrayer.includes(x.id) ? '★' : ''}${x.icon} ${x.name} · ${spText(x.fx)}</option>`).join('')}</select>
@@ -388,10 +395,11 @@ export class UI {
       const keep = it.kind === 'food' ? `<button class="btn sm kp">${s.keepFood[id] ? '🔒 아껴 둠' : '🍽 먹음'}</button>`
         : it.kind === 'potion' ? '<button class="btn sm pri use">마시기</button>'
           : it.kind === 'box' ? '<button class="btn sm pri use">열기</button><button class="btn sm useA">모두 열기</button>'
-            : it.kind === 'tool' || it.kind === 'life' ? `<button class="btn sm pri use"${g.canUse(id) ? '' : ' disabled'}>장착</button>` : '';
+            : it.kind === 'tool' || it.kind === 'life' ? `<button class="btn sm pri use"${g.canUse(id) ? '' : ' disabled'}>장착</button>`
+              : it.kind === 'whistle' || it.kind === 'tome' ? '<button class="btn sm pri use">사용</button>' : '';
       const r = h('div', 'row', `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name} <span class="mut">x${fmt(g.have(id))}</span></div><div class="mut">개당 💰${fmt(it.value)}${extra}</div></div>
         ${keep}<button class="btn sm s1">1개 판매</button><button class="btn sm sa">모두</button>`);
-      $('.use', r)?.addEventListener('click', () => (it.kind === 'potion' ? g.drink(id) : it.kind === 'box' ? g.openBox(id, 1) : it.kind === 'tool' ? g.equipTool(id) : g.equipLife(id)));
+      $('.use', r)?.addEventListener('click', () => (it.kind === 'potion' ? g.drink(id) : it.kind === 'box' ? g.openBox(id, 1) : it.kind === 'tool' ? g.equipTool(id) : it.kind === 'life' ? g.equipLife(id) : g.useItem(id)));
       $('.useA', r)?.addEventListener('click', () => g.openBox(id, g.have(id)));
       if (it.kind === 'food') $('.kp', r).addEventListener('click', () => { if (s.keepFood[id]) delete s.keepFood[id]; else s.keepFood[id] = true; s.keepFood = { ...s.keepFood }; });
       $('.s1', r).addEventListener('click', () => g.sell(id, 1));
@@ -423,10 +431,10 @@ export class UI {
     }
     p.appendChild(h('div', 'h', '🙏 기도'));
     for (const pr of [...PRAYERS].sort((a, b) => s.favPrayer.includes(b.id) - s.favPrayer.includes(a.id))) {
-      const lock = g.lvl('div') < pr.lvl;
+      const lock = g.prayerOpen ? !g.prayerOpen(pr) : g.lvl('div') < pr.lvl;
       const on = s.prayer === pr.id;
       const fv = s.favPrayer.includes(pr.id);
-      const r = h('div', 'row' + (lock ? ' lock' : '') + (on ? ' on' : ''), `<div class="ic">${pr.icon}</div><div class="info"><div class="nm">${pr.name} <span class="mut">Lv ${pr.lvl}</span></div><div class="mut sp">★ ${spText(pr.fx)}</div></div><button class="btn sm fv">${fv ? '⭐' : '☆'}</button><button class="btn on1"${lock ? ' disabled' : ''}>${lock ? '🔒' : on ? '끄기' : '켜기'}</button>`);
+      const r = h('div', 'row' + (lock ? ' lock' : '') + (on ? ' on' : ''), `<div class="ic">${pr.icon}</div><div class="info"><div class="nm">${pr.name} <span class="mut">Lv ${pr.lvl}${pr.tome ? (s.tomes || []).includes(pr.id) ? ' · 📕 배움' : ' · 📕 기도서 필요' : ''}</span></div><div class="mut sp">★ ${spText(pr.fx)}</div></div><button class="btn sm fv">${fv ? '⭐' : '☆'}</button><button class="btn on1"${lock ? ' disabled' : ''}>${lock ? '🔒' : on ? '끄기' : '켜기'}</button>`);
       $('.on1', r).addEventListener('click', () => { s.prayer = on ? null : pr.id; g.dirty(); });
       $('.fv', r).addEventListener('click', () => { s.favPrayer = fv ? s.favPrayer.filter((x) => x !== pr.id) : [...s.favPrayer, pr.id]; });
       p.appendChild(r);
@@ -440,7 +448,7 @@ export class UI {
     for (const pet of [...PETS].sort((a, b) => s.favPet.includes(b.id) - s.favPet.includes(a.id))) {
       const own = s.pets.includes(pet.id);
       const on = s.pet === pet.id;
-      const src = pet.src.startsWith('boss:') ? `${ZONES[+pet.src.slice(5)].mons[3].name} 처치 · 확률 1/${Math.round(1 / pet.p)}` : pet.src === 'event' ? '🎉 별빛 축제 상점' : `${SKILL[pet.src].name} 행동 · 확률 1/${Math.round(1 / pet.p)}`;
+      const src = pet.srcText ? pet.srcText : pet.src.startsWith('boss:') ? `${ZONES[+pet.src.slice(5)].mons[3].name} 처치 · 확률 1/${Math.round(1 / pet.p)}` : pet.src === 'event' ? '🎉 별빛 축제 상점' : `${SKILL[pet.src].name} 행동 · 확률 1/${Math.round(1 / pet.p)}`;
       const r = h('div', 'row' + (own ? '' : ' lock') + (on ? ' on' : ''), `<div class="ic">${own ? pet.icon : '❔'}</div><div class="info"><div class="nm">${own ? pet.name : '???'}</div><div class="mut">${src}</div><div class="mut sp">★ ${spText(pet.fx)}</div></div>${own ? `<button class="btn sm fv">${s.favPet.includes(pet.id) ? '⭐' : '☆'}</button>` : ''}<button class="btn on1"${own ? '' : ' disabled'}>${on ? '보내기' : '데리고 다니기'}</button>`);
       $('.on1', r).addEventListener('click', () => { s.pet = on ? null : pet.id; g.dirty(); });
       $('.fv', r)?.addEventListener('click', () => { const f = s.favPet.includes(pet.id); s.favPet = f ? s.favPet.filter((x) => x !== pet.id) : [...s.favPet, pet.id]; });
