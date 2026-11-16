@@ -11,6 +11,7 @@ const fmt = (n) => Math.floor(n).toLocaleString('ko-KR');
 const pct = (v, d = 0) => `${(v * 100).toFixed(d)}%`;
 const spText = (sp) => Object.entries(sp || {}).map(([k, v]) => `${SPECIAL_NAMES[k]} +${pct(v, v < 0.1 ? 1 : 0)}`).join(', ');
 const spOr = (sp) => (Object.keys(sp || {}).length ? `<span class="sp">★ ${spText(sp)}</span>` : '');
+const icol = (it) => (it.r > 1 ? it.rc : TIERS[it.t]?.c || 'inherit');
 const stVal = (k, v) => (STATS[k].pct ? pct(v, 1) : fmt(v));
 const stText = (st) => Object.entries(st || {}).filter(([, v]) => v).map(([k, v]) => `${STATS[k].icon}${STATS[k].name} +${stVal(k, v)}`).join(' ');
 const sign = (v, d = 1) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(d)}%`;
@@ -34,7 +35,7 @@ export class UI {
   // 바뀐 게 있을 때만 패널을 다시 그림 (스크롤 유지)
   signature() {
     const s = this.g.s;
-    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0]);
+    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0]);
   }
   render(force = false) {
     const sig = this.signature();
@@ -89,6 +90,15 @@ export class UI {
       const sk = A.type === 'bury' ? 'div' : A.skill;
       $('.info', act).textContent = `${SKILL[sk].name} Lv ${g.lvl(sk)} · ${this.xpText(sk)}` + (A.type === 'bury' ? ` · 남은 뼈 ${fmt(g.have(A.bone))}` : '');
     }
+    // 이번 세션 기록 (0.5초마다)
+    const se = $('.sess', act);
+    if (se && rt.sess && (!this._sessT || performance.now() - this._sessT > 500)) {
+      this._sessT = performance.now();
+      const S = rt.sess, hr = Math.max(S.t, 1) / 3600;
+      const xp = Object.values(S.xp).reduce((a, b) => a + b, 0);
+      const got = Object.entries(S.got).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, n]) => `${ITEMS[id].icon}${fmt(n)}`).join(' ');
+      se.innerHTML = `⏱ ${time(S.t)}${S.kills ? ` · 처치 ${fmt(S.kills)} (${fmt(S.kills / hr)}/시)` : ''} · XP ${fmt(xp / hr)}/시${S.coins ? ` · 💰 ${fmt(S.coins / hr)}/시` : ''}${S.food ? ` · 음식 ${fmt(S.food)}` : ''}${S.deaths ? ` · 사망 ${S.deaths}` : ''}${got ? `<br>획득 ${got}` : ''}`;
+    }
     // 알림
     while (rt.log.length) {
       const l = rt.log.shift();
@@ -108,10 +118,10 @@ export class UI {
         <div class="fighter"><div class="ic heroIc">🧝</div><div class="nm">나 (${STYLES[g.style()].icon} ${STYLES[g.style()].name})</div><div class="bar hpP"><div></div><span></span></div><div class="bar tm tmP"><div></div></div></div>
         <div class="vs">VS</div>
         <div class="fighter"><div class="ic monIc">${m.icon}</div><div class="nm">${m.boss ? '👑 ' : ''}${m.name} Lv ${m.lvl} · ${STYLES[m.style].icon}</div><div class="bar mon hpM"><div></div><span></span></div><div class="bar tm tmM"><div></div></div></div>
-      </div><div class="floats"></div><div class="actinfo"><span class="info"></span><button class="btn sm" id="stopBtn">■ 멈춤</button></div>`;
+      </div><div class="floats"></div><div class="actinfo"><span class="info"></span><button class="btn sm" id="stopBtn">■ 멈춤</button></div><div class="sess mut"></div>`;
     }
     const a = A.type === 'bury' ? { icon: ITEMS[A.bone].icon, name: ITEMS[A.bone].name + ' 묻기' } : ACTIONS[A.skill].find((x) => x.id === A.act);
-    return `<div class="skillact"><div class="ic">${a.icon}</div><div class="grow"><b>${a.name}</b><div class="bar"><div></div></div><div class="actinfo"><span class="info"></span></div></div><button class="btn sm" id="stopBtn">■ 멈춤</button></div>`;
+    return `<div class="skillact"><div class="ic">${a.icon}</div><div class="grow"><b>${a.name}</b><div class="bar"><div></div></div><div class="actinfo"><span class="info"></span></div><div class="sess mut"></div></div><button class="btn sm" id="stopBtn">■ 멈춤</button></div>`;
   }
   xpText(id) {
     const g = this.g;
@@ -208,7 +218,7 @@ export class UI {
       const it = ITEMS[l.id];
       const pr = l.fixed ? 1 : Math.min(1, l.p * mul);
       const n = l.a === l.b ? `${l.a}` : `${l.a}~${l.b}`;
-      const col = it.kind === 'gear' ? `color:${TIERS[it.t].c}` : '';
+      const col = it.kind === 'gear' ? `color:${icol(it)}` : '';
       return `<tr><td>${it.icon}</td><td style="${col}">${it.name}${it.kind === 'gear' ? `<br><small class="mut">${SLOTS[it.slot].name} · ${stText(it.st)}</small>` : ''}</td><td>x${n}</td><td style="text-align:right">${pr >= 1 ? '항상' : pct(pr, pr < 0.01 ? 2 : 1)}</td></tr>`;
     }).join('');
     const pet = m.boss ? PETS.find((x) => x.src === 'boss:' + m.z) : null;
@@ -259,7 +269,7 @@ export class UI {
     const grid = h('div', 'grid2');
     for (const sl of SLOT_IDS) {
       const it = ITEMS[s.equip[sl]];
-      const c = h('div', 'slot', `<div class="t">${SLOTS[sl].icon} ${SLOTS[sl].name}</div><div class="n" style="color:${it ? TIERS[it.t].c : 'var(--mut)'}">${it ? it.icon + ' ' + it.name : '비어 있음'}</div>${it ? `<div class="t">${stText(it.st)}</div>` : ''}`);
+      const c = h('div', 'slot', `<div class="t">${SLOTS[sl].icon} ${SLOTS[sl].name}</div><div class="n" style="color:${it ? icol(it) : 'var(--mut)'}">${it ? it.icon + ' ' + it.name : '비어 있음'}</div>${it ? `<div class="t">${stText(it.st)}</div>` : ''}`);
       if (it) { c.style.cursor = 'pointer'; c.title = '눌러서 해제'; c.addEventListener('click', () => g.unequip(sl)); }
       grid.appendChild(c);
     }
@@ -268,15 +278,20 @@ export class UI {
     const b = g.bonuses();
     const tbl = `<div class="stats">${STAT_IDS.map((k) => `<div>${STATS[k].icon} ${STATS[k].name} <b>+${stVal(k, b.st[k])}</b></div>`).join('')}</div>`;
     p.appendChild(h('div', 'card', `<b>장비 보너스</b>${tbl}<div style="margin-top:6px"><b>기도 · 펫 보너스</b><div class="sp">${spText(b.sp) || '없음'}</div></div>`));
+    const ae = h('div', 'card', `<label class="tg"><input type="checkbox" class="ae"${s.autoEquip ? ' checked' : ''}> 🔄 더 좋은 장비 자동 장착</label>
+      <label class="tg"><input type="checkbox" class="fd"${s.favorDef ? ' checked' : ''}> 🛡️ 자동 장착은 방어 우선</label><div class="mut">무기는 지금 전투 방식과 같은 것만 바꿉니다 · 장비는 등급(일반~유물)이 무작위로 붙고 등급이 높을수록 스탯이 큽니다</div>`);
+    $('.ae', ae).addEventListener('change', (e) => { s.autoEquip = e.target.checked; if (s.autoEquip) Object.keys(s.bank).filter((id) => ITEMS[id].kind === 'gear').forEach((id) => g.autoEquipCheck(id)); });
+    $('.fd', ae).addEventListener('change', (e) => { s.favorDef = e.target.checked; });
+    p.appendChild(ae);
     p.appendChild(h('div', 'h', '가방의 장비'));
-    const gear = Object.keys(s.bank).filter((id) => ITEMS[id].kind === 'gear').sort((a, c) => ITEMS[c].t - ITEMS[a].t || ITEMS[a].slot.localeCompare(ITEMS[c].slot));
+    const gear = Object.keys(s.bank).filter((id) => ITEMS[id].kind === 'gear').sort((a, c) => ITEMS[c].t - ITEMS[a].t || ITEMS[a].slot.localeCompare(ITEMS[c].slot) || ITEMS[c].r - ITEMS[a].r);
     if (!gear.length) p.appendChild(h('div', 'mut', '장비가 없습니다. 몬스터 드롭 · 대장 · 공예로 얻습니다.'));
     for (const id of gear) {
       const it = ITEMS[id];
       const ok = g.canEquip(id);
       const d = g.equipDelta(id);
-      const dt = d ? `<span style="color:${d > 0 ? '#4ade80' : '#f87171'}">전투력 ${d > 0 ? '+' : ''}${fmt(d)}</span>` : '<span class="mut">전투력 변화 없음</span>';
-      const r = h('div', 'row' + (ok ? '' : ' lock'), `<div class="ic">${it.icon}</div><div class="info"><div class="nm" style="color:${TIERS[it.t].c}">${it.name} <span class="mut">x${g.have(id)} · ${SLOTS[it.slot].name}</span></div><div class="mut">${this.gearLine(it)}</div><div class="mut">${dt}</div></div>
+      const dt = Math.abs(d) >= 0.05 ? `<span style="color:${d > 0 ? '#4ade80' : '#f87171'}">전투력 ${d > 0 ? '+' : ''}${Math.abs(d) < 10 ? d.toFixed(1) : fmt(d)}</span>` : '<span class="mut">전투력 변화 없음</span>';
+      const r = h('div', 'row' + (ok ? '' : ' lock'), `<div class="ic">${it.icon}</div><div class="info"><div class="nm" style="color:${icol(it)}">${it.name} <span class="mut">x${g.have(id)} · ${SLOTS[it.slot].name}</span></div><div class="mut">${this.gearLine(it)}</div><div class="mut">${dt}</div></div>
         <div style="display:flex;flex-direction:column;gap:4px"><button class="btn sm pri eq"${ok ? '' : ' disabled'}>장착</button><button class="btn sm sl">판매 ${fmt(it.value)}</button></div>`);
       $('.eq', r).addEventListener('click', () => g.equip(id));
       $('.sl', r).addEventListener('click', () => g.sell(id, 1));
@@ -292,8 +307,10 @@ export class UI {
     for (const id of ids) {
       const it = ITEMS[id];
       const extra = it.kind === 'food' ? ` · 회복 ${it.heal}` : it.kind === 'bone' ? ` · 신성 XP ${it.xp}` : '';
+      const keep = it.kind === 'food' ? `<button class="btn sm kp">${s.keepFood[id] ? '🔒 아껴 둠' : '🍽 먹음'}</button>` : '';
       const r = h('div', 'row', `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name} <span class="mut">x${fmt(g.have(id))}</span></div><div class="mut">개당 💰${fmt(it.value)}${extra}</div></div>
-        <button class="btn sm s1">1개 판매</button><button class="btn sm sa">모두</button>`);
+        ${keep}<button class="btn sm s1">1개 판매</button><button class="btn sm sa">모두</button>`);
+      if (keep) $('.kp', r).addEventListener('click', () => { if (s.keepFood[id]) delete s.keepFood[id]; else s.keepFood[id] = true; s.keepFood = { ...s.keepFood }; });
       $('.s1', r).addEventListener('click', () => g.sell(id, 1));
       $('.sa', r).addEventListener('click', () => g.sell(id, g.have(id)));
       p.appendChild(r);
@@ -353,6 +370,13 @@ export class UI {
     p.appendChild(c);
     $('#optNums', c).addEventListener('change', (e) => { s.showNums = e.target.checked; });
     $('#optEat', c).addEventListener('change', (e) => { s.autoEat = Number(e.target.value); });
+    const fo = h('div', 'card', `<b>🍖 음식 관리</b>
+      <label class="tg"><input type="checkbox" data-k="eatDanger"${s.eatDanger ? ' checked' : ''}> 다음 공격에 죽을 수 있으면 미리 먹기</label>
+      <label class="tg"><input type="checkbox" data-k="eatWorst"${s.eatWorst ? ' checked' : ''}> 약한 음식부터 먹기</label>
+      <label class="tg"><input type="checkbox" data-k="stopNoFood"${s.stopNoFood ? ' checked' : ''}> 음식이 떨어지고 체력 30% 아래면 전투 멈춤</label>
+      <div class="mut">가방에서 음식마다 🔒 아껴 두기를 할 수 있습니다</div>`);
+    fo.querySelectorAll('[data-k]').forEach((x) => x.addEventListener('change', () => { s[x.dataset.k] = x.checked; }));
+    p.appendChild(fo);
     const sv = h('div', 'card', `<b>저장</b><div class="mut">15초마다 자동 저장 · 오프라인 최대 12시간 진행</div><div class="seg" style="margin-top:6px"><button id="bSave">💾 저장</button><button id="bExp">📤 내보내기</button><button id="bImp">📥 불러오기</button><button id="bReset">🗑️ 초기화</button></div>`);
     p.appendChild(sv);
     $('#bSave', sv).addEventListener('click', () => { this.hooks.save(); g.toast('저장했습니다'); });

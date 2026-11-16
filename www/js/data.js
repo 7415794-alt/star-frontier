@@ -1,5 +1,5 @@
 // 별무리 개척기 — 게임 데이터 (수치는 모두 이 게임용으로 설계)
-export const VERSION = '0.2.1';
+export const VERSION = '0.3.0';
 export const MAX_LVL = 100;
 export const SPEEDS = [1, 2, 4, 8, 16, 32];
 
@@ -60,8 +60,32 @@ export const CAPS = { ls: 0.3, dr: 0.6 };
 // ---------- 기도 · 펫 보너스 (스탯 7종만: 공격 · 힘 · 방어 · 원거리 · 마법 %, 흡수 · 피해 감소) ----------
 export const SPECIAL_NAMES = {
   atkPct: '공격', strPct: '힘', defPct: '방어', rngPct: '원거리', magPct: '마법', ls: '생명력 흡수', dr: '피해 감소',
-  gspd: '채집 속도', gxp: '채집 경험치', mspd: '제작 속도', mxp: '제작 경험치', heal: '음식 회복량', burn: '음식 안 태울 확률',
+  gspd: '채집 속도', gxp: '채집 경험치', cspd: '제작 속도', pspd: '생산 속도', mxp: '제작 · 생산 경험치', heal: '음식 회복량', burn: '음식 안 태울 확률',
+  drop: '드롭률', hpTick: '틱당 체력 회복', thief: '도둑질 성공률', bossDmg: '보스 피해', sxp: '생활 경험치', dxp: '신성 경험치',
 };
+// 값이 % 가 아닌 보너스 (틱당 회복은 고정 수치)
+export const FLAT_SP = new Set(['hpTick']);
+export const COMBAT_TICK = 0.6; // 틱당 체력 회복 주기 (초)
+
+// ---------- 장비 등급 (드롭 · 제작 시 무작위, 스탯 배율) ----------
+export const RARITY = [
+  { r: 1, n: '일반', p: 0.55, mult: 1.0, c: '#b5b9c4' },
+  { r: 2, n: '고급', p: 0.215, mult: 1.1, c: '#4ade80' },
+  { r: 3, n: '희귀', p: 0.109, mult: 1.22, c: '#60a5fa' },
+  { r: 4, n: '영웅', p: 0.065, mult: 1.35, c: '#c084fc' },
+  { r: 5, n: '전설', p: 0.03, mult: 1.5, c: '#fb923c' },
+  { r: 6, n: '신화', p: 0.015, mult: 1.67, c: '#facc15' },
+  { r: 7, n: '고대', p: 0.007, mult: 1.86, c: '#22d3ee' },
+  { r: 8, n: '유물', p: 0.003, mult: 2.07, c: '#f43f5e' },
+];
+export function rollRarity(min = 1) {
+  const pool = RARITY.filter((x) => x.r >= min);
+  const tot = pool.reduce((a, x) => a + x.p, 0);
+  let v = Math.random() * tot;
+  for (const x of pool) { v -= x.p; if (v <= 0) return x.r; }
+  return pool[0].r;
+}
+export const gearId = (base, r) => (r > 1 ? `${base}_r${r}` : base);
 export const SLOTS = {
   weapon: { name: '무기', icon: '⚔️' }, shield: { name: '방패', icon: '🛡️' }, head: { name: '머리', icon: '⛑️' },
   body: { name: '상의', icon: '👕' }, legs: { name: '하의', icon: '👖' }, gloves: { name: '장갑', icon: '🧤' },
@@ -143,10 +167,15 @@ for (const type of Object.keys(GEAR)) {
     const g = GEAR[type];
     const { st, sp } = gearStats(type, t);
     const matN = Object.values(g.mat).reduce((a, b) => a + b, 0);
-    ITEMS[`${type}${t}`] = {
-      name: `${T.n} ${g.name}`, icon: g.icon, kind: 'gear', type, slot: g.slot, t, style: g.style, req: [g.req, T.lvl],
-      speed: g.speed, twoHand: !!g.twoHand, st, sp, value: 15 * (t + 1) ** 2 * matN,
-    };
+    const base = `${type}${t}`;
+    for (const R of RARITY) {
+      const st2 = {};
+      for (const [k, v] of Object.entries(st)) st2[k] = STATS[k].pct ? Math.round(v * R.mult * 10000) / 10000 : Math.round(v * R.mult);
+      ITEMS[gearId(base, R.r)] = {
+        name: (R.r > 1 ? `[${R.n}] ` : '') + `${T.n} ${g.name}`, icon: g.icon, kind: 'gear', type, slot: g.slot, t, r: R.r, base, rc: R.c,
+        style: g.style, req: [g.req, T.lvl], speed: g.speed, twoHand: !!g.twoHand, st: st2, sp, value: Math.round(15 * (t + 1) ** 2 * matN * R.mult ** 2),
+      };
+    }
   });
 }
 
@@ -246,36 +275,51 @@ for (const [type, g] of Object.entries(GEAR)) {
 // ---------- 신성: 기도 ----------
 export const PRAYERS = [
   { id: 'skin', name: '단단한 피부', icon: '🗿', lvl: 1, fx: { defPct: 0.05 } },
-  { id: 'might', name: '강인한 힘', icon: '💪', lvl: 4, fx: { strPct: 0.05 } },
-  { id: 'eye', name: '날카로운 눈', icon: '👁️', lvl: 8, fx: { rngPct: 0.06 } },
-  { id: 'mind', name: '맑은 정신', icon: '🔮', lvl: 12, fx: { magPct: 0.06 } },
-  { id: 'focus', name: '전투 집중', icon: '🎯', lvl: 20, fx: { atkPct: 0.08, strPct: 0.04 } },
-  { id: 'blood', name: '피의 서약', icon: '🩸', lvl: 28, fx: { ls: 0.03 } },
-  { id: 'wall', name: '철벽', icon: '🧱', lvl: 35, fx: { defPct: 0.12, dr: 0.04 } },
-  { id: 'hawk', name: '매의 눈', icon: '🦅', lvl: 42, fx: { rngPct: 0.14 } },
-  { id: 'arcane', name: '비전 집중', icon: '✴️', lvl: 48, fx: { magPct: 0.14 } },
-  { id: 'warrior', name: '전사의 기도', icon: '⚔️', lvl: 55, fx: { atkPct: 0.12, strPct: 0.12 } },
-  { id: 'aegis', name: '빛의 방벽', icon: '🌟', lvl: 65, fx: { defPct: 0.15, dr: 0.08 } },
-  { id: 'hunt', name: '사냥꾼의 기도', icon: '🏹', lvl: 75, fx: { rngPct: 0.18, defPct: 0.06, ls: 0.02 } },
-  { id: 'star', name: '별의 은총', icon: '🌠', lvl: 85, fx: { magPct: 0.18, defPct: 0.06, ls: 0.02 } },
+  { id: 'swift', name: '날랜 손놀림', icon: '🗡️', lvl: 6, fx: { atkPct: 0.05 } },
+  { id: 'might', name: '강인한 힘', icon: '💪', lvl: 11, fx: { strPct: 0.05 } },
+  { id: 'eye', name: '날카로운 눈', icon: '👁️', lvl: 16, fx: { rngPct: 0.08 } },
+  { id: 'mind', name: '맑은 정신', icon: '🔮', lvl: 18, fx: { magPct: 0.08 } },
+  { id: 'finger', name: '가벼운 손가락', icon: '🤏', lvl: 20, fx: { thief: 0.05 } },
+  { id: 'shell', name: '굳은 껍질', icon: '🐢', lvl: 22, fx: { defPct: 0.1 } },
+  { id: 'endure', name: '지구력', icon: '🪓', lvl: 27, fx: { gspd: 0.1 } },
+  { id: 'falcon', name: '매의 시야', icon: '🦅', lvl: 31, fx: { atkPct: 0.1, rngPct: 0.1 } },
+  { id: 'arcane', name: '비전의 눈', icon: '✴️', lvl: 32, fx: { atkPct: 0.1, magPct: 0.1 } },
+  { id: 'wind', name: '순풍', icon: '🍀', lvl: 35, fx: { drop: 0.08 } },
+  { id: 'shadow', name: '그림자 걸음', icon: '👤', lvl: 38, fx: { thief: 0.1 } },
+  { id: 'steel', name: '강철 의지', icon: '⚔️', lvl: 40, fx: { strPct: 0.12, defPct: 0.15 } },
+  { id: 'regen', name: '생명의 기도', icon: '💚', lvl: 42, fx: { hpTick: 6 } },
+  { id: 'soul', name: '영혼 흡수', icon: '🩸', lvl: 45, fx: { ls: 0.01 } },
+  { id: 'hands', name: '안정된 손', icon: '🔨', lvl: 46, fx: { pspd: 0.05, cspd: 0.05 } },
+  { id: 'attune', name: '조율', icon: '📘', lvl: 50, fx: { sxp: 0.1 } },
+  { id: 'aegis', name: '신성한 방패', icon: '🌟', lvl: 54, fx: { dr: 0.15 } },
+  { id: 'titan', name: '거인의 힘', icon: '🗿', lvl: 58, fx: { strPct: 0.2 } },
+  { id: 'master', name: '대도의 기도', icon: '🎭', lvl: 59, fx: { thief: 0.15 } },
+  { id: 'artisan', name: '장인의 집중', icon: '⚒️', lvl: 60, fx: { pspd: 0.08, cspd: 0.08 } },
+  { id: 'hunter', name: '포식자의 눈', icon: '🏹', lvl: 61, fx: { rngPct: 0.22 } },
+  { id: 'surge', name: '마력 쇄도', icon: '🌀', lvl: 62, fx: { magPct: 0.22 } },
+  { id: 'venge', name: '신성한 복수', icon: '⚡', lvl: 64, fx: { bossDmg: 0.25 } },
+  { id: 'sanct', name: '성역', icon: '⛪', lvl: 66, fx: { atkPct: 0.25, strPct: 0.18, defPct: 0.25 } },
+  { id: 'tenac', name: '끈기', icon: '🎯', lvl: 68, fx: { rngPct: 0.25, defPct: 0.12 } },
+  { id: 'cosmic', name: '우주의 힘', icon: '🌌', lvl: 70, fx: { magPct: 0.25, defPct: 0.12 } },
+  { id: 'forge', name: '대장간의 율동', icon: '🔥', lvl: 72, fx: { pspd: 0.12, cspd: 0.12 } },
 ];
 
 // ---------- 펫 ----------
 export const PETS = [
-  { id: 'squirrel', name: '도토리 다람쥐', icon: '🐿️', src: 'wood', p: 1 / 4000, fx: { gspd: 0.06 } },
-  { id: 'mole', name: '꼬마 두더지', icon: '🦔', src: 'mine', p: 1 / 4000, fx: { gxp: 0.08 } },
-  { id: 'otter', name: '장난꾸러기 수달', icon: '🦦', src: 'fish', p: 1 / 4000, fx: { heal: 0.15 } },
-  { id: 'salamander', name: '불씨 도롱뇽', icon: '🦎', src: 'smith', p: 1 / 3000, fx: { mspd: 0.06 } },
-  { id: 'moth', name: '비단 나방', icon: '🦋', src: 'craft', p: 1 / 3000, fx: { mxp: 0.08 } },
-  { id: 'chick', name: '노릇 병아리', icon: '🐥', src: 'cook', p: 1 / 3000, fx: { burn: 0.5 } },
-  { id: 'boar', name: '아기 멧돼지', icon: '🐗', src: 'boss:0', p: 1 / 150, fx: { strPct: 0.03 } },
-  { id: 'sprout', name: '새싹 수호자', icon: '🌱', src: 'boss:1', p: 1 / 180, fx: { rngPct: 0.04 } },
-  { id: 'pebble', name: '조약돌 골렘', icon: '🗿', src: 'boss:2', p: 1 / 200, fx: { dr: 0.03 } },
-  { id: 'hydra', name: '꼬마 히드라', icon: '🐍', src: 'boss:3', p: 1 / 220, fx: { ls: 0.01 } },
-  { id: 'yeti', name: '아기 설인', icon: '⛄', src: 'boss:4', p: 1 / 250, fx: { defPct: 0.06 } },
-  { id: 'griffin', name: '꼬마 그리폰', icon: '🦅', src: 'boss:5', p: 1 / 280, fx: { magPct: 0.05 } },
-  { id: 'drake', name: '새끼 용', icon: '🐉', src: 'boss:6', p: 1 / 300, fx: { atkPct: 0.05, strPct: 0.05 } },
-  { id: 'star', name: '별똥 정령', icon: '🌠', src: 'boss:7', p: 1 / 350, fx: { atkPct: 0.04, strPct: 0.04, rngPct: 0.04, magPct: 0.04, defPct: 0.04 } },
+  { id: 'squirrel', name: '도토리 다람쥐', icon: '🐿️', src: 'wood', p: 1 / 4000, fx: { gspd: 0.1 } },
+  { id: 'mole', name: '꼬마 두더지', icon: '🦔', src: 'mine', p: 1 / 4000, fx: { gspd: 0.05, sxp: 0.05 } },
+  { id: 'otter', name: '장난꾸러기 수달', icon: '🦦', src: 'fish', p: 1 / 4000, fx: { heal: 0.15, gspd: 0.05 } },
+  { id: 'salamander', name: '불씨 도롱뇽', icon: '🦎', src: 'smith', p: 1 / 3000, fx: { cspd: 0.1 } },
+  { id: 'moth', name: '비단 나방', icon: '🦋', src: 'craft', p: 1 / 3000, fx: { cspd: 0.05, pspd: 0.05 } },
+  { id: 'chick', name: '노릇 병아리', icon: '🐥', src: 'cook', p: 1 / 3000, fx: { pspd: 0.1, burn: 0.5 } },
+  { id: 'boar', name: '아기 멧돼지', icon: '🐗', src: 'boss:0', p: 1 / 150, fx: { strPct: 0.05, rngPct: 0.05, magPct: 0.05 } },
+  { id: 'sprout', name: '새싹 수호자', icon: '🌱', src: 'boss:1', p: 1 / 180, fx: { drop: 0.1 } },
+  { id: 'pebble', name: '조약돌 골렘', icon: '🗿', src: 'boss:2', p: 1 / 200, fx: { defPct: 0.1 } },
+  { id: 'hydra', name: '꼬마 히드라', icon: '🐍', src: 'boss:3', p: 1 / 220, fx: { hpTick: 25 } },
+  { id: 'yeti', name: '아기 설인', icon: '⛄', src: 'boss:4', p: 1 / 250, fx: { defPct: 0.1, hpTick: 10, ls: 0.01 } },
+  { id: 'griffin', name: '꼬마 그리폰', icon: '🦅', src: 'boss:5', p: 1 / 280, fx: { gspd: 0.1, pspd: 0.1 } },
+  { id: 'drake', name: '새끼 용', icon: '🐉', src: 'boss:6', p: 1 / 300, fx: { strPct: 0.06, rngPct: 0.06, magPct: 0.06, hpTick: 15 } },
+  { id: 'star', name: '별똥 정령', icon: '🌠', src: 'boss:7', p: 1 / 350, fx: { drop: 0.1, bossDmg: 0.1 } },
 ];
 export const PET = Object.fromEntries(PETS.map((p) => [p.id, p]));
 

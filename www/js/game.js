@@ -1,7 +1,7 @@
 // 별무리 개척기 — 게임 로직
 import {
   SKILLS, SKILL, ITEMS, SLOT_IDS, STAT_IDS, CAPS, MONSTER, ACTIONS, PRAYERS, PETS, PET, SPELLS, SPEEDS,
-  levelOf, baseHp, penChance, defEff, MON_ROLL, monFloor, monDef, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
+  levelOf, baseHp, COMBAT_TICK, rollRarity, gearId, penChance, defEff, MON_ROLL, monFloor, monDef, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
 } from './data.js';
 
 export const SAVE_KEY = 'star-frontier-save-v1';
@@ -26,6 +26,13 @@ export function newState() {
     speed: 1,
     stats: { kills: 0, deaths: 0, actions: 0 },
     kills: {},
+    autoEquip: false,          // 더 좋은 장비를 얻으면 자동 장착
+    favorDef: false,           // 자동 장착: 방어 우선
+    keepFood: {},              // 자동 섭취에서 아껴 둘 음식
+    eatWorst: false,           // 약한 음식부터 먹기
+    eatDanger: true,           // 다음 공격에 죽을 수 있으면 미리 먹기
+    stopNoFood: false,         // 음식이 떨어지고 체력이 낮으면 전투 멈춤
+    log: { first: {}, got: {}, gear: {}, bossKills: 0, food: 0, time: 0 }, // 모험 일지
     lastSeen: Date.now(),
   };
 }
@@ -36,7 +43,14 @@ export function newState() {
 const STD_ATK = 100; // 전투력 계산용 표준 공격자
 export const C = {
   // 기도 · 펫은 스탯을 %로 올림
-  eff: (p, k) => (p.lv[k] + (p.st[k] || 0)) * (1 + (p.sp[k + 'Pct'] || 0)),
+  eff: (p, k) => {
+    const b = p.lv[k] + (p.st[k] || 0);
+    const pc = p.sp[k + 'Pct'] || 0, mn = p.sp[k + 'Min'] || 0; // 물약: % 와 최소 보장치 중 큰 값
+    return b + (pc || mn ? Math.max(b * pc, mn) : 0);
+  },
+  // 피해 배율: 보스 피해 · 사냥꾼 숙련
+  dmgMult: (p, m) => (1 + (m?.boss ? p.sp.bossDmg || 0 : 0)) * (1 + C.hunt(p, m).dmg),
+  hunt: (p, m) => ({ dmg: 0, def: 0, drop: 0 }),
   styleLv: (p) => (p.style === 'melee' ? (p.lv.atk + p.lv.str) / 2 : p.style === 'ranged' ? p.lv.rng : p.lv.mag),
   // 최대 피해: 근접 (공격 + 힘) x 0.85 / 원거리 원거리 x 0.85 / 마법 마법 x 0.70 x 주문 배율
   maxHit: (p) => {
@@ -54,9 +68,9 @@ export const C = {
   maxHp: (p) => baseHp(p.lv.def),
   ls: (p) => Math.min(CAPS.ls, (p.st.ls || 0) + (p.sp.ls || 0)),
   dr: (p) => Math.min(CAPS.dr, (p.st.dr || 0) + (p.sp.dr || 0)),
-  avgHit: (p, mdef = 0) => {
+  avgHit: (p, mdef = 0, m = null) => {
     const cap = C.cap(p, mdef);
-    return (C.minHit(p, cap) + cap) / 2;
+    return ((C.minHit(p, cap) + cap) / 2) * C.dmgMult(p, m);
   },
   // 몬스터 공격: 명중률은 방어로 낮춤 / 맞으면 피해를 방어 효율 · 피해 감소만큼 줄임
   mHit: (p, m) => penChance(m.atk, C.eff(p, 'def')),
@@ -66,21 +80,22 @@ export const C = {
   },
   vs: (p, m) => {
     const mdef = monDef(m, p.style);
-    const dps = C.avgHit(p, mdef) / C.interval(p);
+    const dps = C.avgHit(p, mdef, m) / C.interval(p);
     const ttk = m.hp / Math.max(0.01, dps);
     const mHit = C.mHit(p, m);
     const mMax = C.mDmg(p, m, MON_ROLL[1]);
     const mAvg = (C.mDmg(p, m, MON_ROLL[0]) + mMax) / 2;
     const mdps = (mHit * mAvg) / m.interval;
     const hp = C.maxHp(p);
-    const heal = dps * C.ls(p) + hp * 0.001;
+    const heal = dps * C.ls(p) + hp * 0.001 + (p.sp.hpTick || 0) / COMBAT_TICK;
     const net = mdps - heal;
     const lossPerKill = Math.max(0, net) * ttk;
     const killsPerLife = lossPerKill > 0 ? hp / lossPerKill : Infinity;
     const cycle = ttk + RESPAWN;
     const kpm = killsPerLife === Infinity ? 60 / cycle : (60 * killsPerLife) / (killsPerLife * cycle + DEATH_TIME + 3);
     const cap = C.cap(p, mdef);
-    return { mdef, min: C.minHit(p, cap), mh: cap, dps, ttk, mHit, mMax, mdps, heal, killsPerLife, kpm };
+    const dm = C.dmgMult(p, m);
+    return { mdef, min: Math.floor(C.minHit(p, cap) * dm), mh: Math.floor(cap * dm), dps, ttk, mHit, mMax, mdps, heal, killsPerLife, kpm };
   },
   // 전투력: 몬스터와 상관없는 순수한 강함 = √(초당 피해 x 버티는 힘)
   power: (p) => {
@@ -88,14 +103,15 @@ export const C = {
     const d = C.eff(p, 'def');
     const taken = penChance(STD_ATK, d) * (1 - defEff(d, STD_ATK)) * (1 - C.dr(p));
     const ehp = (C.maxHp(p) / Math.max(0.02, taken)) * (1 + C.ls(p) * 3);
-    return Math.round(Math.sqrt(Math.max(0, off) * ehp));
+    return Math.sqrt(Math.max(0, off) * ehp);
   },
 };
 
 export class Game {
   constructor(s) {
     this.s = s;
-    this.rt = { hp: 0, mon: null, monHp: 0, atkT: 0, monT: 0, respawn: 0, dead: 0, prog: 0, fx: [], log: [], cache: null, regenT: 0 };
+    this.rt = { hp: 0, mon: null, monHp: 0, atkT: 0, monT: 0, respawn: 0, dead: 0, prog: 0, fx: [], log: [], cache: null, regenT: 0, tickT: 0, sess: null, noFood: false };
+    this.newSess();
     this.rt.hp = this.maxHp();
   }
 
@@ -107,6 +123,7 @@ export class Game {
   addXp(id, n) {
     const before = this.lvl(id);
     this.s.xp[id] = (this.s.xp[id] || 0) + n;
+    if (this.rt.sess) this.rt.sess.xp[id] = (this.rt.sess.xp[id] || 0) + n;
     const after = this.lvl(id);
     if (after > before) { this.toast(`${SKILL[id].icon} ${SKILL[id].name} 레벨 ${after}!`, 'lvl'); this.dirty(); }
   }
@@ -159,7 +176,8 @@ export class Game {
   maxHit() { return C.maxHit(this.profile()); }
   atkInterval() { return C.interval(this.profile()); }
   vs(m) { return C.vs(this.profile(), m); }
-  power() { return C.power(this.profile()); }
+  power() { return Math.round(C.power(this.profile())); }
+  powerRaw() { return C.power(this.profile()); }
 
   // 스탯 추천: 레벨 +1 / 장비 스탯 +10 (흡수 · 피해 감소 +1%p) 했을 때
   // real = 지금(또는 고른) 몬스터와 실제 전투의 분당 처치 증가 · power = 전투력 증가
@@ -215,12 +233,12 @@ export class Game {
     const it = ITEMS[id];
     if (!it) return 0;
     const eq = { ...this.s.equip };
-    const before = this.power();
+    const before = this.powerRaw();
     this.s.equip[it.slot] = id;
     if (it.twoHand) delete this.s.equip.shield;
     if (it.slot === 'shield' && ITEMS[eq.weapon]?.twoHand) delete this.s.equip.weapon;
     this.dirty();
-    const after = this.power();
+    const after = this.powerRaw();
     this.s.equip = eq;
     this.dirty();
     return after - before;
@@ -244,6 +262,7 @@ export class Game {
   // ---------- 행동 ----------
   startCombat(monId) {
     if (!MONSTER[monId]) return false;
+    if (this.s.activity?.mon !== monId) this.newSess();
     this.s.activity = { type: 'combat', mon: monId };
     this.spawn();
     return true;
@@ -252,6 +271,7 @@ export class Game {
     const a = (ACTIONS[skill] || []).find((x) => x.id === actId);
     if (!a || this.lvl(skill) < a.lvl) return false;
     if (a.in && !this.hasInputs(a)) { this.toast('재료가 부족합니다', 'bad'); return false; }
+    if (this.s.activity?.act !== actId) this.newSess();
     this.s.activity = { type: 'skill', skill, act: actId };
     this.rt.prog = 0;
     this.rt.mon = null;
@@ -259,6 +279,7 @@ export class Game {
   }
   startBury(boneId) {
     if (this.have(boneId) < 1) return false;
+    if (this.s.activity?.bone !== boneId) this.newSess();
     this.s.activity = { type: 'bury', bone: boneId };
     this.rt.prog = 0;
     this.rt.mon = null;
@@ -269,13 +290,18 @@ export class Game {
   actionTime(skill, a) {
     let sp = 1 + Math.min(1, 0.01 * Math.max(0, this.lvl(skill) - a.lvl));
     const ty = SKILL[skill].type;
-    if (ty === 'gather') sp *= 1 + this.sp('gspd');
-    if (ty === 'make') sp *= 1 + this.sp('mspd');
+    if (ty === 'gather') sp *= 1 + this.sp('gspd') + this.toolSpeed(skill);
+    // 장비 제작은 제작 속도, 요리 · 제련 · 연금 같은 가공은 생산 속도
+    if (ty === 'make') sp *= 1 + (a.group === '장비 제작' ? this.sp('cspd') : this.sp('pspd'));
     return a.time / sp;
+  }
+  toolSpeed() { return 0; }
+  actionKind(a) { return a.group === '장비 제작' ? 'cspd' : 'pspd'; }
+  isCraft(skill, a) { return SKILL[skill].type === 'make' && a.group === '장비 제작';
   }
   actionXp(skill, a) {
     const ty = SKILL[skill].type;
-    return a.xp * (1 + (ty === 'gather' ? this.sp('gxp') : ty === 'make' ? this.sp('mxp') : 0));
+    return a.xp * (1 + this.sp('sxp') + (ty === 'gather' ? this.sp('gxp') : ty === 'make' ? this.sp('mxp') : 0));
   }
   burnChance(a) {
     if (!a.burn) return 0;
@@ -301,6 +327,8 @@ export class Game {
     if (!rt.mon) { rt.respawn -= dt; if (rt.respawn <= 0) this.spawn(); return; }
     const m = rt.mon;
     const p = this.profile();
+    rt.tickT += dt;
+    while (rt.tickT >= COMBAT_TICK) { rt.tickT -= COMBAT_TICK; if (p.sp.hpTick) rt.hp = Math.min(C.maxHp(p), rt.hp + p.sp.hpTick); }
     rt.atkT += dt;
     const iv = C.interval(p);
     while (rt.atkT >= iv && rt.mon) { rt.atkT -= iv; this.playerAttack(m, p); }
@@ -312,7 +340,7 @@ export class Game {
     const rt = this.rt;
     const cap = C.cap(p, monDef(m, p.style));
     const lo = C.minHit(p, cap);
-    let dmg = lo + Math.floor(Math.random() * (cap - lo + 1));
+    let dmg = Math.floor((lo + Math.floor(Math.random() * (cap - lo + 1))) * C.dmgMult(p, m));
     dmg = Math.min(dmg, rt.monHp);
     rt.monHp -= dmg;
     this.fx('mon', String(dmg), 'hit');
@@ -344,37 +372,57 @@ export class Game {
       rt.dead = DEATH_TIME;
       rt.mon = null;
       this.s.stats.deaths++;
+      if (this.rt.sess) this.rt.sess.deaths++;
       this.toast('쓰러졌습니다… 잠시 후 다시 싸웁니다', 'bad');
     }
   }
+  // 자동 섭취: 체력이 기준 아래이거나 (설정 시) 다음 공격에 죽을 수 있으면. 아껴 둔 음식은 먹지 않음
+  foods() {
+    const s = this.s;
+    return Object.keys(s.bank).filter((id) => ITEMS[id]?.kind === 'food' && !s.keepFood?.[id])
+      .sort((a, b) => (s.eatWorst ? ITEMS[a].heal - ITEMS[b].heal : ITEMS[b].heal - ITEMS[a].heal));
+  }
   autoEat() {
+    const s = this.s, rt = this.rt;
     const max = this.maxHp();
+    const m = rt.mon;
+    const danger = s.eatDanger && m ? C.mDmg(this.profile(), m, MON_ROLL[1]) : 0;
     let guard = 20;
-    while (this.rt.hp < max * this.s.autoEat && guard-- > 0) {
-      const food = Object.keys(this.s.bank).filter((id) => ITEMS[id]?.kind === 'food').sort((a, b) => ITEMS[b].heal - ITEMS[a].heal)[0];
-      if (!food) return;
+    while ((rt.hp < max * s.autoEat || (danger && rt.hp <= danger && rt.hp < max)) && guard-- > 0) {
+      const food = this.foods()[0];
+      if (!food) {
+        if (!rt.noFood) { rt.noFood = true; this.toast('⚠ 먹을 음식이 없습니다!', 'bad'); }
+        if (s.stopNoFood && rt.hp < max * 0.3 && s.activity?.type === 'combat') { this.toast('음식이 없어 전투를 멈췄습니다', 'bad'); this.stop(); }
+        return;
+      }
+      rt.noFood = false;
       this.give(food, -1);
-      this.rt.hp = Math.min(max, this.rt.hp + ITEMS[food].heal * (1 + this.sp('heal')));
+      rt.hp = Math.min(max, rt.hp + ITEMS[food].heal * (1 + this.sp('heal')));
+      s.log.food++;
+      if (rt.sess) rt.sess.food++;
     }
   }
-  dropMult() { return 1; }
+  dropMult(m) { return 1 + this.sp('drop') + C.hunt(this.profile(), m).drop; }
   kill(m) {
     const s = this.s;
     s.stats.kills++;
     s.kills ||= {};
     s.kills[m.id] = (s.kills[m.id] || 0) + 1;
-    const mul = this.dropMult();
+    s.log.first[m.id] ||= Date.now();
+    if (m.boss) s.log.bossKills++;
+    if (this.rt.sess) this.rt.sess.kills++;
+    const mul = this.dropMult(m);
     const got = [];
     for (const l of m.loot) {
       if (!l.fixed && Math.random() >= Math.min(1, l.p * mul)) continue;
       const n = l.a + Math.floor(Math.random() * (l.b - l.a + 1));
-      this.give(l.id, n);
-      got.push(ITEMS[l.id].icon);
-      const it = ITEMS[l.id];
-      if (it.kind === 'gear' || it.id === 'gem') this.toast(`📦 ${it.name} 획득!`, 'loot');
-      else if (l.id.startsWith('gem')) this.toast(`💎 ${it.name} 획득!`, 'loot');
+      const id = this.gain(l.id, n);
+      got.push(ITEMS[id].icon);
+      if (l.id.startsWith('gem')) this.toast(`💎 ${ITEMS[id].name} 획득!`, 'loot');
     }
-    s.coins += m.coins[0] + Math.floor(Math.random() * (m.coins[1] - m.coins[0] + 1));
+    const c = m.coins[0] + Math.floor(Math.random() * (m.coins[1] - m.coins[0] + 1));
+    s.coins += c;
+    if (this.rt.sess) this.rt.sess.coins += c;
     if (m.boss) {
       const pet = PETS.find((x) => x.src === 'boss:' + m.z);
       if (pet) this.tryPet(pet, mul);
@@ -383,6 +431,36 @@ export class Game {
     this.rt.mon = null;
     this.rt.respawn = RESPAWN;
   }
+  // 아이템 획득: 장비는 등급을 굴림 · 일지 · 세션 기록 · 자동 장착
+  gain(id, n = 1) {
+    const s = this.s;
+    let it = ITEMS[id];
+    if (it?.kind === 'gear' && it.r === 1) {
+      for (let k = 0; k < n; k++) {
+        const gid = gearId(it.base, rollRarity());
+        this.give(gid, 1);
+        s.log.gear[gid] = (s.log.gear[gid] || 0) + 1;
+        this.toast(`📦 ${ITEMS[gid].name} 획득!`, ITEMS[gid].r >= 4 ? 'pet' : 'loot');
+        this.autoEquipCheck(gid);
+        id = gid;
+      }
+    } else this.give(id, n);
+    s.log.got[id] = (s.log.got[id] || 0) + n;
+    if (this.rt.sess) this.rt.sess.got[id] = (this.rt.sess.got[id] || 0) + n;
+    return id;
+  }
+  autoEquipCheck(id) {
+    const s = this.s;
+    if (!s.autoEquip || !this.canEquip(id) || this.have(id) < 1) return;
+    const it = ITEMS[id];
+    const cur = ITEMS[s.equip[it.slot]];
+    if (it.slot === 'weapon' && cur && cur.style !== it.style) return; // 전투 방식은 바꾸지 않음
+    const better = s.favorDef ? (it.st.def || 0) - (cur?.st.def || 0) > 0 || (!cur && this.equipDelta(id) > 0) : this.equipDelta(id) > 0;
+    if (better) { this.equip(id); this.toast(`🔄 자동 장착: ${it.name}`, 'loot'); }
+  }
+  // 세션 기록 (행동을 시작할 때마다 새로)
+  newSess() { this.rt.sess = { t: 0, kills: 0, deaths: 0, coins: 0, food: 0, xp: {}, got: {} }; }
+
   tryPet(pet, mul = 1) {
     if (this.s.pets.includes(pet.id) || Math.random() >= pet.p * mul) return;
     this.s.pets.push(pet.id);
@@ -402,9 +480,9 @@ export class Game {
       this.rt.prog -= 1;
       if (a.in && !this.hasInputs(a)) { this.stop(); return; }
       for (const [id, n] of Object.entries(a.in || {})) this.give(id, -n);
-      if (a.burn && Math.random() < this.burnChance(a)) this.give('burnt', 1);
-      else for (const [id, n] of Object.entries(a.out || {})) this.give(id, n);
-      if (a.gem && Math.random() < 0.01) { this.give(a.gem, 1); this.toast(`💎 ${ITEMS[a.gem].name} 발견!`, 'loot'); }
+      if (a.burn && Math.random() < this.burnChance(a)) this.gain('burnt', 1);
+      else for (const [id, n] of Object.entries(a.out || {})) this.gain(id, n);
+      if (a.gem && Math.random() < 0.01) { this.gain(a.gem, 1); this.toast(`💎 ${ITEMS[a.gem].name} 발견!`, 'loot'); }
       this.addXp(A.skill, this.actionXp(A.skill, a));
       this.s.stats.actions++;
       const pet = PETS.find((p) => p.src === A.skill);
@@ -419,7 +497,7 @@ export class Game {
       this.rt.prog -= 1;
       if (this.have(id) < 1) { this.stop(); return; }
       this.give(id, -1);
-      this.addXp('div', ITEMS[id].xp);
+      this.addXp('div', ITEMS[id].xp * (1 + this.sp('dxp')));
     }
   }
 
@@ -433,6 +511,8 @@ export class Game {
     }
     const A = this.s.activity;
     if (A) {
+      if (rt.sess) rt.sess.t += dt;
+      this.s.log.time = (this.s.log.time || 0) + dt;
       if (A.type === 'combat') this.combatTick(dt);
       else if (A.type === 'skill') this.skillTick(dt);
       else if (A.type === 'bury') this.buryTick(dt);
@@ -474,6 +554,8 @@ export function hydrate(o) {
   s.bank = Object.fromEntries(Object.entries(o.bank || {}).filter(([id, n]) => ITEMS[id] && n > 0));
   s.equip = Object.fromEntries(Object.entries(o.equip || base.equip).filter(([sl, id]) => ITEMS[id]?.slot === sl));
   s.pets = (o.pets || []).filter((p) => PET[p]);
+  s.log = { ...base.log, ...(o.log || {}) };
+  for (const k of ['first', 'got', 'gear']) s.log[k] = { ...(o.log?.[k] || {}) };
   if (!SPEEDS.includes(s.speed)) s.speed = 1;
   return s;
 }
