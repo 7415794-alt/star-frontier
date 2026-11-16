@@ -665,6 +665,7 @@ U.frameX = function (act, A) {
   if (!g.bgHunting()) { d.textContent = ''; return; }
   const m = MONSTER[g.s.huntMon], mx = g.maxHp();
   d.textContent = `⚔ 함께 사냥: ${m.icon} ${m.name} ${rt.mon ? `${fmt(rt.monHp)}/${fmt(m.hp)}` : rt.dead > 0 ? `· 부활까지 ${rt.dead.toFixed(0)}초` : '· 다음 몬스터…'} · 내 체력 ${fmt(Math.max(0, rt.hp))}/${fmt(mx)} · 처치 ${fmt(g.s.kills?.[m.id] || 0)}`;
+  this.noWrapSeg(d);
 };
 const _sig2 = U.sigX;
 U.sigX = function () { const s = this.g.s; return [..._sig2.call(this), s.bgHunt, s.huntMon, s.autoQuest]; };
@@ -701,3 +702,22 @@ U.autoDonateCard = function (p) {
 };
 const _sig3 = U.sigX;
 U.sigX = function () { return [..._sig3.call(this), this.g.s.autoDonate]; };
+
+// 줄바꿈 정리: ' · ' 로 나눈 짧은 항목은 한 줄로 묶어서 글자가 한두 개씩 다음 줄로 넘어가지 않게
+U.noWrapSeg = function (root) {
+  if (!root) return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.nodeValue.includes(' · ') && !n.parentElement?.closest('select, option, .nw') && !/flex|grid/.test(getComputedStyle(n.parentElement).display) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+  });
+  const list = [];
+  while (w.nextNode()) list.push(w.currentNode);
+  for (const n of list) {
+    const parts = n.nodeValue.split(' · ');
+    const fr = document.createDocumentFragment();
+    parts.forEach((t, i) => {
+      if (i) fr.append('\u00a0· ');
+      if (t.trim() && t.length <= 26) { const sp = document.createElement('span'); sp.className = 'nw'; sp.textContent = t; fr.append(sp); } else fr.append(t);
+    });
+    n.replaceWith(fr);
+  }
+};

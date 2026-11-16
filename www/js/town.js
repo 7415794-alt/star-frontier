@@ -235,7 +235,7 @@ export function tabTown(ui, p) {
   const g = ui.g, s = g.s;
   g.townInit();
   const seg = h('div', 'seg');
-  for (const [k, n] of [['quest', '📜 의뢰'], ['talent', '🌟 재능'], ['museum', '🏛️ 박물관'], ['trader', '🧳 상인'], ['fest', `🎉 축제${isFestival() ? ' (진행 중)' : ''}`], ...(ui.townExtra || [])]) {
+  for (const [k, n] of [['quest', '📜 의뢰'], ['talent', '🌟 재능'], ['museum', '🏛️ 박물관'], ['trader', '🧳 상인'], ['fest', '🎉 축제'], ...(ui.townExtra || [])]) {
     const b = h('button', (ui.town || 'quest') === k ? 'on' : '', n);
     b.addEventListener('click', () => { ui.town = k; });
     seg.appendChild(b);

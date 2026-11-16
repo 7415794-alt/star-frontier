@@ -74,7 +74,9 @@ export class UI {
     p.innerHTML = '';
     document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === this.tab));
     document.body.classList.toggle('cb', !!this.g.s.cb);
+    this._seg = true;
     ({ combat: this.tabCombat, skills: this.tabSkills, gear: this.tabGear, bank: this.tabBank, codex: (el) => tabCodex(this, el), town: (el) => tabTown(this, el), more: this.tabMore })[this.tab].call(this, p);
+    this.noWrapSeg?.(p);
     if (!force) p.scrollTop = top;
   }
 
@@ -132,6 +134,7 @@ export class UI {
       const xp = Object.values(S.xp).reduce((a, b) => a + b, 0);
       const got = Object.entries(S.got).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, n]) => `${ITEMS[id].icon}${fmt(n)}`).join(' ');
       se.innerHTML = `⏱ ${time(S.t)}${S.kills ? ` · 처치 ${fmt(S.kills)} (${fmt(S.kills / hr)}/시)` : ''} · XP ${fmt(xp / hr)}/시${S.coins ? ` · 💰 ${fmt(S.coins / hr)}/시` : ''}${S.food ? ` · 음식 ${fmt(S.food)}` : ''}${S.deaths ? ` · 사망 ${S.deaths}` : ''}${got ? `<br>획득 ${got}` : ''}`;
+      this.noWrapSeg?.(se);
     }
     // 알림
     while (rt.log.length) {
@@ -516,6 +519,7 @@ export class UI {
       $('.mbtns', box).appendChild(e);
     }
     $('#modal').classList.remove('hidden');
+    this.noWrapSeg?.(box);
   }
 }
 
