@@ -65,7 +65,12 @@ export const SPECIAL_NAMES = {
 };
 // 값이 % 가 아닌 보너스 (틱당 회복은 고정 수치)
 export const FLAT_SP = new Set(['hpTick']);
-export const COMBAT_TICK = 0.6; // 틱당 체력 회복 주기 (초)
+export const COMBAT_TICK = 0.6;
+// 사냥꾼 숙련: 같은 몬스터를 잡은 수에 따라 그 몬스터 상대로 보너스 (단계마다 드롭률 +2% · 피해 +2% · 방어 +1.6%)
+export const HUNT_TIERS = [25, 100, 300, 1000, 3000];
+export const HUNT_NAMES = ['없음', '견습 사냥꾼', '사냥꾼', '숙련 사냥꾼', '명사냥꾼', '전설의 사냥꾼'];
+export const HUNT_PER = { drop: 0.02, dmg: 0.02, def: 0.016 };
+export const huntTier = (kills) => HUNT_TIERS.filter((n) => (kills || 0) >= n).length; // 틱당 체력 회복 주기 (초)
 
 // ---------- 장비 등급 (드롭 · 제작 시 무작위, 스탯 배율) ----------
 export const RARITY = [

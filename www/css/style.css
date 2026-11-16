@@ -27,6 +27,8 @@ button { font: inherit; color: inherit; }
 .bar { height: 10px; background: #0d1024; border-radius: 6px; overflow: hidden; margin-top: 3px; position: relative; }
 .bar > div { height: 100%; background: var(--good); transition: width .15s; }
 .bar.mon > div { background: #f97316; }
+body.cb .bar > div { background: #3b82f6; }
+body.cb .bar.mon > div { background: #f59e0b; }
 .bar.tm { height: 4px; } .bar.tm > div { background: var(--acc); transition: none; }
 .bar span { position: absolute; inset: 0; font-size: 9px; line-height: 10px; text-align: center; }
 .floats { position: absolute; inset: 0; pointer-events: none; }

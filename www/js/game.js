@@ -1,7 +1,7 @@
 // 별무리 개척기 — 게임 로직
 import {
   SKILLS, SKILL, ITEMS, SLOT_IDS, STAT_IDS, CAPS, MONSTER, ACTIONS, PRAYERS, PETS, PET, SPELLS, SPEEDS,
-  levelOf, baseHp, COMBAT_TICK, rollRarity, gearId, penChance, defEff, MON_ROLL, monFloor, monDef, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
+  levelOf, XP_TABLE, baseHp, COMBAT_TICK, HUNT_PER, huntTier, rollRarity, gearId, penChance, defEff, MON_ROLL, monFloor, monDef, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
 } from './data.js';
 
 export const SAVE_KEY = 'star-frontier-save-v1';
@@ -33,6 +33,11 @@ export function newState() {
     eatDanger: true,           // 다음 공격에 죽을 수 있으면 미리 먹기
     stopNoFood: false,         // 음식이 떨어지고 체력이 낮으면 전투 멈춤
     log: { first: {}, got: {}, gear: {}, bossKills: 0, food: 0, time: 0 }, // 모험 일지
+    goals: {},                 // 스킬 목표 레벨
+    hideWeak: false,           // 약한 장비 숨기기
+    favPrayer: [], favPet: [], // 즐겨찾기
+    sfx: false, cb: false,     // 효과음 · 색약 모드
+    tut: false,                // 처음 안내를 봤는지
     lastSeen: Date.now(),
   };
 }
@@ -50,7 +55,11 @@ export const C = {
   },
   // 피해 배율: 보스 피해 · 사냥꾼 숙련
   dmgMult: (p, m) => (1 + (m?.boss ? p.sp.bossDmg || 0 : 0)) * (1 + C.hunt(p, m).dmg),
-  hunt: (p, m) => ({ dmg: 0, def: 0, drop: 0 }),
+  hunt: (p, m) => {
+    const t = m ? huntTier(p.mk?.[m.id]) : 0;
+    return { t, dmg: t * HUNT_PER.dmg, def: t * HUNT_PER.def, drop: t * HUNT_PER.drop };
+  },
+  defVs: (p, m) => C.eff(p, 'def') * (1 + C.hunt(p, m).def),
   styleLv: (p) => (p.style === 'melee' ? (p.lv.atk + p.lv.str) / 2 : p.style === 'ranged' ? p.lv.rng : p.lv.mag),
   // 최대 피해: 근접 (공격 + 힘) x 0.85 / 원거리 원거리 x 0.85 / 마법 마법 x 0.70 x 주문 배율
   maxHit: (p) => {
@@ -73,9 +82,9 @@ export const C = {
     return ((C.minHit(p, cap) + cap) / 2) * C.dmgMult(p, m);
   },
   // 몬스터 공격: 명중률은 방어로 낮춤 / 맞으면 피해를 방어 효율 · 피해 감소만큼 줄임
-  mHit: (p, m) => penChance(m.atk, C.eff(p, 'def')),
+  mHit: (p, m) => penChance(m.atk, C.defVs(p, m)),
   mDmg: (p, m, r) => {
-    const raw = Math.max(monFloor(m), Math.floor(m.str * r * (1 - defEff(C.eff(p, 'def'), m.str))));
+    const raw = Math.max(monFloor(m), Math.floor(m.str * r * (1 - defEff(C.defVs(p, m), m.str))));
     return Math.max(0, Math.floor(raw * (1 - C.dr(p))));
   },
   vs: (p, m) => {
@@ -125,7 +134,13 @@ export class Game {
     this.s.xp[id] = (this.s.xp[id] || 0) + n;
     if (this.rt.sess) this.rt.sess.xp[id] = (this.rt.sess.xp[id] || 0) + n;
     const after = this.lvl(id);
-    if (after > before) { this.toast(`${SKILL[id].icon} ${SKILL[id].name} 레벨 ${after}!`, 'lvl'); this.dirty(); }
+    if (after > before) {
+      this.toast(`${SKILL[id].icon} ${SKILL[id].name} 레벨 ${after}!`, 'lvl');
+      this.dirty();
+      const goal = this.s.goals?.[id];
+      if (goal && after >= goal) { delete this.s.goals[id]; this.s.goals = { ...this.s.goals }; this.toast(`🎯 목표 달성! ${SKILL[id].name} ${goal}`, 'pet'); }
+      this.sound('lvl');
+    }
   }
   combatLevel() {
     const L = (k) => this.lvl(k);
@@ -169,7 +184,7 @@ export class Game {
     const b = this.bonuses();
     return {
       lv: { atk: this.lvl('atk'), str: this.lvl('str'), def: this.lvl('def'), rng: this.lvl('rng'), mag: this.lvl('mag') },
-      st: { ...b.st }, sp: { ...b.sp }, style: this.style(), speed: this.weapon()?.speed || 2.4, spellMult: this.spell().mult,
+      st: { ...b.st }, sp: { ...b.sp }, mk: this.s.kills, style: this.style(), speed: this.weapon()?.speed || 2.4, spellMult: this.spell().mult,
     };
   }
   maxHp() { return C.maxHp(this.profile()); }
@@ -537,7 +552,31 @@ export class Game {
     this.rt.fx.push({ at, text, kind, t: 0, x: Math.random() * 40 - 20 });
     if (this.rt.fx.length > 30) this.rt.fx.shift();
   }
-  toast(text, kind = '') { if (!this.quiet) this.rt.log.push({ text, kind }); }
+  toast(text, kind = '') { if (!this.quiet) this.rt.log.push({ text, kind }); if (kind === 'pet') this.sound('rare'); }
+  // 간단한 효과음 (설정에서 켬)
+  sound(kind) {
+    if (this.quiet || !this.s.sfx) return;
+    try {
+      this._ac ||= new (window.AudioContext || window.webkitAudioContext)();
+      const ac = this._ac, o = ac.createOscillator(), g = ac.createGain();
+      const f = { lvl: [523, 784], rare: [660, 990], hit: [220, 180] }[kind] || [440, 440];
+      o.frequency.setValueAtTime(f[0], ac.currentTime);
+      o.frequency.linearRampToValueAtTime(f[1], ac.currentTime + 0.15);
+      g.gain.setValueAtTime(0.08, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.3);
+      o.connect(g).connect(ac.destination);
+      o.start(); o.stop(ac.currentTime + 0.3);
+    } catch (e) { /* 소리 미지원 */ }
+  }
+  // 목표까지: 남은 경험치 · 지금(또는 가장 좋은) 행동 기준 예상 시간
+  goalEta(skill, target) {
+    const need = Math.max(0, XP_TABLE[Math.min(target, XP_TABLE.length - 1)] - (this.s.xp[skill] || 0));
+    const A = this.s.activity;
+    let a = A?.type === 'skill' && A.skill === skill ? (ACTIONS[skill] || []).find((x) => x.id === A.act) : null;
+    if (!a) a = (ACTIONS[skill] || []).filter((x) => this.lvl(skill) >= x.lvl).sort((x, y) => this.actionXp(skill, y) / this.actionTime(skill, y) - this.actionXp(skill, x) / this.actionTime(skill, x))[0];
+    if (!a) return { need, sec: null, a: null };
+    return { need, a, n: Math.ceil(need / this.actionXp(skill, a)), sec: (need / this.actionXp(skill, a)) * this.actionTime(skill, a) };
+  }
 }
 
 // ---------- 저장 ----------
@@ -556,6 +595,8 @@ export function hydrate(o) {
   s.pets = (o.pets || []).filter((p) => PET[p]);
   s.log = { ...base.log, ...(o.log || {}) };
   for (const k of ['first', 'got', 'gear']) s.log[k] = { ...(o.log?.[k] || {}) };
+  s.goals = { ...(o.goals || {}) };
+  s.favPrayer = [...(o.favPrayer || [])]; s.favPet = [...(o.favPet || [])];
   if (!SPEEDS.includes(s.speed)) s.speed = 1;
   return s;
 }
