@@ -467,7 +467,7 @@ export class Game {
         const gid = gearId(it.base, rollRarity());
         this.give(gid, 1);
         s.log.gear[gid] = (s.log.gear[gid] || 0) + 1;
-        this.toast(`📦 ${ITEMS[gid].name} 획득!`, ITEMS[gid].r >= 4 ? 'pet' : 'loot');
+        if (ITEMS[gid].r >= (s.gearToast ?? 1)) this.toast(`📦 ${ITEMS[gid].name} 획득!`, ITEMS[gid].r >= 4 ? 'pet' : 'loot'); // 장비 드롭 알림: 이 등급 이상만
         this.autoEquipCheck(gid);
         id = gid;
       }

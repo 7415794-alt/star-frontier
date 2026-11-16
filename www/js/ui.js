@@ -57,7 +57,7 @@ export class UI {
   // 바뀐 게 있을 때만 패널을 다시 그림 (스크롤 유지)
   signature() {
     const s = this.g.s;
-    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.favPrayer, s.favPet, s.sfx, s.cb, Object.values(s.effects || {}).map((e) => e.id), s.tools, s.life, s.autoPot, s.quests, s.talents, s.museum, s.trader, s.candy, this.town, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0, this.sigX ? this.sigX() : 0]);
+    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.gearToast, s.favPrayer, s.favPet, s.sfx, s.cb, Object.values(s.effects || {}).map((e) => e.id), s.tools, s.life, s.autoPot, s.quests, s.talents, s.museum, s.trader, s.candy, this.town, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0, this.sigX ? this.sigX() : 0]);
   }
   render(force = false) {
     const ae = document.activeElement;
@@ -348,10 +348,12 @@ export class UI {
     p.appendChild(h('div', 'card', `<b>장비 보너스</b>${tbl}<div style="margin-top:6px"><b>기도 · 펫 보너스</b><div class="sp">${spText(b.sp) || '없음'}</div></div>`));
     const ae = h('div', 'card', `<label class="tg"><input type="checkbox" class="ae"${s.autoEquip ? ' checked' : ''}> 🔄 더 좋은 장비 자동 장착</label>
       <label class="tg"><input type="checkbox" class="fd"${s.favorDef ? ' checked' : ''}> 🛡️ 자동 장착은 방어 우선</label>
-      <label class="tg"><input type="checkbox" class="hw"${s.hideWeak ? ' checked' : ''}> 🙈 지금보다 약한 장비 숨기기</label><div class="mut">무기는 지금 전투 방식과 같은 것만 바꿉니다 · 장비는 등급(일반~유물)이 무작위로 붙고 등급이 높을수록 스탯이 큽니다</div>`);
+      <label class="tg"><input type="checkbox" class="hw"${s.hideWeak ? ' checked' : ''}> 🙈 지금보다 약한 장비 숨기기</label>
+      <label class="tg">📦 장비 드롭 알림 <select class="gt">${[[1, '모두 보기'], [3, '희귀 이상만'], [4, '영웅 이상만'], [5, '전설 이상만'], [99, '끄기']].map(([v, n]) => `<option value="${v}"${(s.gearToast ?? 1) === v ? ' selected' : ''}>${n}</option>`).join('')}</select></label><div class="mut">무기는 지금 전투 방식과 같은 것만 바꿉니다 · 장비는 등급(일반~유물)이 무작위로 붙고 등급이 높을수록 스탯이 큽니다</div>`);
     $('.ae', ae).addEventListener('change', (e) => { s.autoEquip = e.target.checked; if (s.autoEquip) Object.keys(s.bank).filter((id) => ITEMS[id].kind === 'gear').forEach((id) => g.autoEquipCheck(id)); });
     $('.fd', ae).addEventListener('change', (e) => { s.favorDef = e.target.checked; });
     $('.hw', ae).addEventListener('change', (e) => { s.hideWeak = e.target.checked; });
+    $('.gt', ae).addEventListener('change', (e) => { s.gearToast = +e.target.value; });
     p.appendChild(ae);
     this.gearToolsCard?.(p);
     p.appendChild(h('div', 'h', '가방의 장비'));
