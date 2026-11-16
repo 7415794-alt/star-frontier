@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14182b">
+  <title>별무리 개척기</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">🌠 별무리 개척기</div>
+    <div class="res"><span id="cbLvl">⚔ 3</span><span id="coins">🪙 0</span></div>
+  </header>
+  <section id="act" class="act"></section>
+  <main id="panel"></main>
+  <nav class="tabs">
+    <button data-tab="combat">⚔️<span>전투</span></button>
+    <button data-tab="skills">🌲<span>스킬</span></button>
+    <button data-tab="gear">🛡️<span>장비</span></button>
+    <button data-tab="bank">🎒<span>가방</span></button>
+    <button data-tab="div">✨<span>신성</span></button>
+    <button data-tab="pets">🐾<span>펫</span></button>
+    <button data-tab="more">⚙️<span>설정</span></button>
+  </nav>
+  <div id="toasts"></div>
+  <div id="modal" class="hidden"><div id="modalBox"></div></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

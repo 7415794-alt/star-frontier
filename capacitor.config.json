@@ -1,0 +1,7 @@
+{
+  "appId": "io.github.starfrontier",
+  "appName": "별무리 개척기",
+  "webDir": "www",
+  "backgroundColor": "#14182b",
+  "android": { "allowMixedContent": false }
+}
