@@ -279,3 +279,11 @@ body.th-adv .toast { border-radius: 12px; }
 .xpstrip .xpb > div { height: 100%; background: linear-gradient(90deg, #7cf0a0, #3ec46d); transition: width .3s; }
 body.th-adv .xpstrip .xpb > div { background: linear-gradient(90deg, #ffe066, #ffb547); }
 body.th-adv .xpstrip .xpn { color: #eaf2ff; }
+
+/* 맨 위 경험치 막대 */
+#expTop { position: relative; height: 16px; background: #0b1024; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+#expTop .ebar { position: absolute; inset: 0; }
+#expTop .ebar > div { height: 100%; background: linear-gradient(90deg, #3ec46d, #7cf0a0); transition: width .3s; }
+#expTop .etx { position: absolute; inset: 0; font-size: 11px; line-height: 16px; text-align: center; color: #fff; text-shadow: 0 1px 2px #000, 0 0 2px #000; white-space: nowrap; overflow: hidden; }
+body.th-adv #expTop { border-bottom: 2px solid #e0a63a; }
+body.th-adv #expTop .ebar > div { background: linear-gradient(90deg, #ffd25a, #ff9a1f); }

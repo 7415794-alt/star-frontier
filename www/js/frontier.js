@@ -2937,3 +2937,39 @@ for (const m of Object.values(MONSTER)) {
   m.def = Math.round(m.def * (1 + 0.06 * k));
   m._divBal = true;
 }
+
+// ====================== 📈 맨 위 경험치 막대: 다음 전투 레벨까지 % (전투 레벨이 최고면 지금 오르는 스킬) ======================
+const fracLv = (g, id) => {
+  if (id === 'div') { const L = g.lvl('div'); return L >= DIV_MAX ? L : L + Math.max(0, Math.min(1, ((g.s.xp.div || 0) - DIV_XP[L]) / (DIV_XP[L + 1] - DIV_XP[L]))); }
+  const L = g.lvl(id), xp = g.s.xp[id] || 0;
+  return L >= MAX_L ? L : L + Math.max(0, Math.min(1, (xp - XP_T[L]) / (XP_T[L + 1] - XP_T[L])));
+};
+const CL_MAX = Math.floor(MAX_L * (0.25 + 0.75 + 0.3 + 0.15));
+P.combatFrac = function () {
+  const st = [(fracLv(this, 'atk') + fracLv(this, 'str')) / 2, fracLv(this, 'rng'), fracLv(this, 'mag')].sort((a, b) => b - a);
+  return fracLv(this, 'def') * 0.25 + st[0] * 0.75 + st[1] * 0.3 + st[2] * 0.15;
+};
+const _frameTopXp = U.frame;
+U.frame = function () {
+  _frameTopXp.call(this);
+  const g = this.g;
+  let el = document.getElementById('expTop');
+  if (!el) {
+    el = h('div', '', '<div class="ebar"><div></div></div><span class="etx"></span>');
+    el.id = 'expTop';
+    document.querySelector('.top')?.after(el);
+  }
+  const cl = g.combatLevel();
+  let label, p;
+  if (cl < CL_MAX) {
+    const v = g.combatFrac();
+    p = Math.max(0, Math.min(0.99999, v - cl));
+    label = `EXP ⚔ 전투 Lv ${cl} → ${cl + 1}`;
+  } else {
+    const id = this.xpStripIds().find((k) => (k === 'div' ? g.lvl('div') < DIV_MAX : g.lvl(k) < MAX_L));
+    if (id) { const f = fracLv(g, id); p = f - Math.floor(f); label = `EXP ${SKILL[id].icon} ${SKILL[id].name} Lv ${Math.floor(f)} → ${Math.floor(f) + 1}`; }
+    else { p = 1; label = `EXP ⚔ 전투 Lv ${cl} (최고)`; }
+  }
+  const txt = `${label} · <b>${p >= 1 ? 'MAX' : (p * 100).toFixed(2) + '%'}</b>`;
+  if (el._t !== txt) { el._t = txt; el.querySelector('.etx').innerHTML = txt; el.querySelector('.ebar > div').style.width = (p * 100).toFixed(2) + '%'; }
+};
