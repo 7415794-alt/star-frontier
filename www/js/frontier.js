@@ -1745,7 +1745,7 @@ U.townFns.tower = townTower;
 const _sigTW = U.sigX;
 U.sigX = function () { const s = this.g.s; return [..._sigTW.call(this), s.tw?.best, s.tw?.auto, s.activity?.type === 'tower']; };
 
-// ====================== 🎟 쿠폰: 코드를 넣으면 도전권 등 보상 (쿠폰마다 한 번) ======================
+// ====================== 🎟 쿠폰: 누르면 바로 도전권 등 보상 (무제한) ======================
 // 도전권은 최대치(3장)를 넘어 쌓을 수 있음
 export const COUPONS = {
   STAR2026: { wb: 3, text: '세계 보스 도전권 3장' },
@@ -1759,10 +1759,8 @@ P.redeemCoupon = function (code) {
   const key = Object.keys(COUPONS).find((x) => cpNorm(x) === k);
   if (!k) return { ok: false, msg: '쿠폰 번호를 입력하세요' };
   if (!key) return { ok: false, msg: '없는 쿠폰입니다' };
-  this.s.coupons ||= [];
-  if (this.s.coupons.includes(key)) return { ok: false, msg: '이미 사용한 쿠폰입니다' };
   const c = COUPONS[key];
-  this.s.coupons = [...this.s.coupons, key];
+  this.s.cpUsed = (this.s.cpUsed || 0) + 1; // 쿠폰은 무제한으로 쓸 수 있음
   if (c.wb) { this.wbRegen(); this.s.wb.tk += c.wb; }
   if (c.coins) this.s.coins += c.coins;
   this.dirty();
@@ -1778,9 +1776,14 @@ U.couponModal = function () {
   setTimeout(() => document.getElementById('cpIn')?.focus(), 50);
 };
 const couponCard = (ui) => {
-  const used = ui.g.s.coupons?.length || 0;
-  const c = h('div', 'card', `<b>🎟 쿠폰</b> <span class="mut">사용 ${used}개</span> <button class="btn sm pri cpb">쿠폰 입력</button><div class="mut">쿠폰으로 세계 보스 도전권 같은 횟수 제한 콘텐츠 티켓을 받습니다</div>`);
-  c.querySelector('.cpb').addEventListener('click', () => ui.couponModal());
+  const g = ui.g;
+  const c = h('div', 'card', `<b>🎟 쿠폰</b> <span class="mut">누르면 바로 사용 · 무제한 · 도전권 ${g.s.wb?.tk ?? 0}장</span><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>`);
+  const box = c.lastElementChild;
+  for (const [k, v] of Object.entries(COUPONS)) {
+    const b = h('button', 'btn sm pri', `🎟 ${v.text}`);
+    b.addEventListener('click', () => { const r = g.redeemCoupon(k); g.toast(r.msg, r.ok ? 'pet' : 'bad'); ui._rT = 0; });
+    box.appendChild(b);
+  }
   return c;
 };
 const _tabMoreCP = U.tabMore;
@@ -1793,4 +1796,4 @@ U.townFns.boss = function (ui, p, g, s) {
   p.insertBefore(couponCard(ui), p.children[n0 + 1] || null);
 };
 const _sigCP = U.sigX;
-U.sigX = function () { return [..._sigCP.call(this), this.g.s.coupons?.length || 0]; };
+U.sigX = function () { return [..._sigCP.call(this), this.g.s.cpUsed || 0, this.g.s.wb?.tk]; };
