@@ -1526,7 +1526,6 @@ P.townInit = function () {
 
 // ====================== 🗼 별의 탑: 층마다 강해지는 적 · 처음 깬 층마다 고정 능력치 영구 보상 ======================
 import { refDef as refDef_T, SPECIAL_NAMES as SPN_T, FLAT_SP as FSP_T } from './data.js';
-const TW_TIME = 60; // 한 층 제한 시간 (초)
 const TW_STAT = ['atk', 'str', 'def', 'rng', 'mag'];
 const TW_MON = [['🦇', '탑의 박쥐'], ['💀', '탑지기 해골'], ['🧿', '떠도는 눈'], ['🗿', '돌 파수꾼'], ['👻', '별빛 망령'], ['🦂', '수정 전갈'], ['🧙', '타락한 마법사'], ['🐺', '그림자 늑대'], ['🤖', '고대 자동인형']];
 const TW_BOSS = [['🐉', '탑의 용'], ['👹', '별 먹는 귀신'], ['🦅', '폭풍의 군주'], ['🧛', '밤의 군주'], ['🌋', '용암 거인']];
@@ -1562,7 +1561,7 @@ P.startTower = function (F) {
   if (this.s.activity) this.stop();
   this.newSess();
   this.rt.fx = [];
-  this.s.fight = { kind: 'tw', F, start: F, time: TW_TIME, hp: twMonster(F).hp, cleared: 0, coins: 0, got: {} };
+  this.s.fight = { kind: 'tw', F, start: F, time: 0, hp: twMonster(F).hp, cleared: 0, coins: 0, got: {} };
   this.s.activity = { type: 'tower', id: 'tw' };
   const rt = this.rt;
   rt.mon = null; rt.atkT = 0; rt.monT = 0; rt.dead = 0;
@@ -1575,7 +1574,7 @@ P.twTick = function (dt) {
   if (f?.kind !== 'tw') { this.s.activity = null; return; }
   const m = rt.twm?.id === 'tw' + f.F ? rt.twm : (rt.twm = twMonster(f.F));
   const p = this.profile();
-  f.time -= dt;
+  f.time += dt; // 이번 층에서 싸운 시간 (제한 없음 · 쓰러질 때까지)
   rt.tickT += dt;
   while (rt.tickT >= COMBAT_TICK) { rt.tickT -= COMBAT_TICK; if (p.sp.hpTick) rt.hp = Math.min(C.maxHp(p), rt.hp + p.sp.hpTick); }
   rt.atkT += dt;
@@ -1605,7 +1604,6 @@ P.twTick = function (dt) {
     this.autoEat();
     if (rt.hp <= 0) { rt.hp = 1; return this.twEnd('쓰러짐'); }
   }
-  if (f.time <= 0) this.twEnd('시간 초과');
 };
 P.twWin = function (f, m) {
   const w = this.twInit(), F = f.F, L = m.lvl, t = tierFor(L);
@@ -1631,7 +1629,7 @@ P.twWin = function (f, m) {
   // 다음 층으로 (자동 오르기) · 층 사이에 체력 30% 회복
   if (w.auto !== false) {
     f.F = F + 1;
-    f.time = TW_TIME;
+    f.time = 0;
     f.hp = twMonster(f.F).hp;
     this.rt.monT = 0;
     this.rt.hp = Math.min(this.maxHp(), this.rt.hp + this.maxHp() * 0.3);
@@ -1700,7 +1698,7 @@ U.frameX = function (act, A) {
   if (hb) { hb.firstElementChild.style.width = pct(Math.max(0, rt.hp) / mx); hb.lastElementChild.textContent = `${fmt(Math.max(0, rt.hp))} / ${fmt(mx)}`; }
   if (mb) { mb.firstElementChild.style.width = pct(Math.max(0, f.hp) / m.hp); mb.lastElementChild.textContent = `${fmt(Math.max(0, f.hp))} / ${fmt(m.hp)}`; }
   const i = act.querySelector('.info');
-  if (i) i.textContent = `남은 시간 ${Math.max(0, f.time).toFixed(0)}초 · 이번 도전 ${f.cleared}층 돌파 · 최고 ${g.s.tw.best}층`;
+  if (i) i.textContent = `이번 층 ${mmss(f.time)} · 이번 도전 ${f.cleared}층 돌파 · 최고 ${g.s.tw.best}층`;
   const fl = act.querySelector('.floats');
   if (fl) {
     act._fl ||= new Set();
@@ -1720,10 +1718,11 @@ function townTower(ui, p, g, s) {
   const w = g.twInit(), F = w.best + 1, m = twMonster(F), v = g.vs(m);
   const inTw = s.activity?.type === 'tower';
   const killT = v.dps > 0 ? m.hp / v.dps : Infinity;
-  const tip = killT <= TW_TIME * 0.6 ? '✅ 여유' : killT <= TW_TIME ? '⚠ 빠듯함' : '❌ 시간 안에 못 잡음';
+  // 쓰러질 때까지: 이 층을 잡는 동안 잃는 체력으로 판단 (음식 제외)
+  const tip = v.killsPerLife >= 2 ? '✅ 여유' : v.killsPerLife >= 1 ? '⚠ 빠듯함 (음식 필요할 수 있음)' : '❌ 쓰러질 가능성 큼';
   const r = twReward(F);
   const c = h('div', 'card', `<b>🗼 별의 탑</b> <span class="mut">최고 기록 <b>${w.best}층</b> · 도전 ${fmt(w.runs)}회</span>
-    <div class="mut">층마다 강해지는 적과 ${TW_TIME}초 안에 싸웁니다 · 이기면 체력 30%를 회복하고 다음 층으로 · 처음 깬 층마다 <b>고정 능력치</b>가 영구로 오릅니다 (공격 → 힘 → 방어 → 원거리 → 마법 순서) · 10층마다 보스 (능력치 3배 + 영웅 이상 장비)</div>
+    <div class="mut">층마다 강해지는 적과 <b>쓰러질 때까지</b> 싸웁니다 (시간 제한 없음) · 이기면 체력 30%를 회복하고 다음 층으로 · 처음 깬 층마다 <b>고정 능력치</b>가 영구로 오릅니다 (공격 → 힘 → 방어 → 원거리 → 마법 순서) · 10층마다 보스 (능력치 3배 + 영웅 이상 장비)</div>
     <div style="margin-top:6px">다음: <b>${F}층</b> ${m.boss ? '👑 ' : ''}${m.icon} ${m.name} Lv ${m.lvl} · ${STYLES[m.style].icon} · 체력 ${fmt(m.hp)}</div>
     <div class="mut">예상 처치 ${Number.isFinite(killT) ? killT.toFixed(0) + '초' : '불가'} ${tip} · 적 명중 ${pct(v.mHit)} · 첫 돌파 보상 ${SPN_T[r.k]} +${fmt(r.v)}</div>
     <div style="margin-top:6px">탑 보너스 (영구): <span class="sp">${spTextTW(g.towerBonus()) || '없음'}</span></div>
@@ -1732,7 +1731,7 @@ function townTower(ui, p, g, s) {
       ${w.best >= 10 ? `<button class="btn twgo2"${inTw ? ' disabled' : ''}>↺ ${Math.max(1, F - 10)}층부터 (몸풀기)</button>` : ''}
       <label class="tg"><input type="checkbox" class="twa"${w.auto !== false ? ' checked' : ''}> 이기면 자동으로 다음 층</label>
     </div>
-    <div class="mut">탑에 오르는 동안 스킬은 멈춥니다 · 쓰러지거나 시간이 지나면 그때까지 보상</div>`);
+    <div class="mut">탑에 오르는 동안 스킬은 멈춥니다 · 쓰러지면 그때까지 보상 · 음식은 자동 섭취 설정대로 먹습니다</div>`);
   c.querySelector('.twgo').addEventListener('click', () => g.startTower(F));
   c.querySelector('.twgo2')?.addEventListener('click', () => g.startTower(Math.max(1, F - 10)));
   c.querySelector('.twa').addEventListener('change', (e) => { w.auto = e.target.checked; });
@@ -1745,3 +1744,53 @@ U.townExtra = [...U.townExtra, ['tower', '🗼 탑']];
 U.townFns.tower = townTower;
 const _sigTW = U.sigX;
 U.sigX = function () { const s = this.g.s; return [..._sigTW.call(this), s.tw?.best, s.tw?.auto, s.activity?.type === 'tower']; };
+
+// ====================== 🎟 쿠폰: 코드를 넣으면 도전권 등 보상 (쿠폰마다 한 번) ======================
+// 도전권은 최대치(3장)를 넘어 쌓을 수 있음
+export const COUPONS = {
+  STAR2026: { wb: 3, text: '세계 보스 도전권 3장' },
+  별무리: { wb: 5, text: '세계 보스 도전권 5장' },
+  WORLDBOSS: { wb: 3, coins: 50000, text: '세계 보스 도전권 3장 · 💰 50,000' },
+  TOWER: { wb: 2, coins: 30000, text: '세계 보스 도전권 2장 · 💰 30,000' },
+};
+const cpNorm = (c) => String(c || '').trim().replace(/\s+/g, '').toUpperCase();
+P.redeemCoupon = function (code) {
+  const k = cpNorm(code);
+  const key = Object.keys(COUPONS).find((x) => cpNorm(x) === k);
+  if (!k) return { ok: false, msg: '쿠폰 번호를 입력하세요' };
+  if (!key) return { ok: false, msg: '없는 쿠폰입니다' };
+  this.s.coupons ||= [];
+  if (this.s.coupons.includes(key)) return { ok: false, msg: '이미 사용한 쿠폰입니다' };
+  const c = COUPONS[key];
+  this.s.coupons = [...this.s.coupons, key];
+  if (c.wb) { this.wbRegen(); this.s.wb.tk += c.wb; }
+  if (c.coins) this.s.coins += c.coins;
+  this.dirty();
+  this.save?.();
+  return { ok: true, msg: `🎟 쿠폰 사용! ${c.text}` };
+};
+U.couponModal = function () {
+  this.modal('🎟 쿠폰 입력', `<input id="cpIn" type="text" autocomplete="off" placeholder="쿠폰 번호" style="width:100%;box-sizing:border-box;padding:8px;font-size:16px;border-radius:8px;border:1px solid var(--line,#444);background:var(--bg2,#111);color:inherit">
+    <div class="mut" style="margin-top:6px">세계 보스 도전권 같은 보상을 받습니다 · 쿠폰마다 한 번 · 도전권은 최대치를 넘어 쌓입니다</div>`, [
+    { label: '받기', pri: true, fn: () => { const r = this.g.redeemCoupon(document.getElementById('cpIn')?.value); this.g.toast(r.msg, r.ok ? 'pet' : 'bad'); this._rT = 0; } },
+    { label: '닫기' },
+  ]);
+  setTimeout(() => document.getElementById('cpIn')?.focus(), 50);
+};
+const couponCard = (ui) => {
+  const used = ui.g.s.coupons?.length || 0;
+  const c = h('div', 'card', `<b>🎟 쿠폰</b> <span class="mut">사용 ${used}개</span> <button class="btn sm pri cpb">쿠폰 입력</button><div class="mut">쿠폰으로 세계 보스 도전권 같은 횟수 제한 콘텐츠 티켓을 받습니다</div>`);
+  c.querySelector('.cpb').addEventListener('click', () => ui.couponModal());
+  return c;
+};
+const _tabMoreCP = U.tabMore;
+U.tabMore = function (p) { p.appendChild(couponCard(this)); return _tabMoreCP.call(this, p); };
+// 세계 보스 카드 아래에도 쿠폰 버튼
+const _bossCP = U.townFns.boss;
+U.townFns.boss = function (ui, p, g, s) {
+  const n0 = p.children.length;
+  _bossCP(ui, p, g, s);
+  p.insertBefore(couponCard(ui), p.children[n0 + 1] || null);
+};
+const _sigCP = U.sigX;
+U.sigX = function () { return [..._sigCP.call(this), this.g.s.coupons?.length || 0]; };
