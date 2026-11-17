@@ -55,6 +55,7 @@ runOffline(away, (off) => {
 
 let last = performance.now();
 let acc = 0;
+let lastUi = 0;
 function loop(now) {
   let dt = (now - last) / 1000;
   last = now;
@@ -62,12 +63,15 @@ function loop(now) {
   if (offRun) { ui.frame(); requestAnimationFrame(loop); return; } // 오프라인 계산 중에는 게임 시간을 멈춤
   // 배속: 게임 시간 = 실제 시간 x 배속 (프레임당 최대 1초 x 배속)
   acc += Math.min(dt, 1) * game.speed();
+  // 렉 줄이기: 한 프레임에 계산은 최대 30번 · 10ms까지 (밀리면 한 번에 더 큰 단위로 계산)
+  const base = game.speed() >= 64 ? 0.1 : 0.05;
+  const step = Math.min(0.5, Math.max(base, acc / 30));
+  const t0 = performance.now();
   let n = 0;
-  // 64배속 이상은 0.1초 단위로 계산해 렉 줄임
-  const step = game.speed() >= 64 ? 0.1 : 0.05;
-  while (acc >= step && n++ < 1000) { game.update(step); acc -= step; }
-  if (acc > 30) acc = 0;
-  ui.frame();
+  while (acc >= step && n++ < 30 && performance.now() - t0 < 10) { game.update(step); acc -= step; }
+  if (acc > step * 60) acc = step * 60; // 폰이 따라가지 못하면 밀린 시간은 버림 (끊김 방지)
+  // 화면 숫자 · 막대는 1초에 10번만 갱신 (떠오르는 숫자 움직임은 CSS가 처리)
+  if (now - lastUi >= 100) { lastUi = now; ui.frame(); }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

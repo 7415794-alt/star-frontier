@@ -2235,3 +2235,12 @@ if (_talBL) P.talentBonus = function () {
   if (this._tbK !== k) { this._tbK = k; this._tbV = _talBL.call(this); }
   return this._tbV;
 };
+// 떠오르는 피해 숫자: 배속이 높아도 한쪽당 0.2초에 하나만 (화면에 숫자가 쏟아져 폰이 느려지는 것 방지)
+const _fxL = P.fx;
+P.fx = function (at, text, kind) {
+  if (this.quiet) return;
+  const now = performance.now(), k = at === 'hero' ? '_fxH' : '_fxM';
+  if (kind !== 'loot' && now - (this[k] || 0) < 200) return;
+  this[k] = now;
+  return _fxL.call(this, at, text, kind);
+};
