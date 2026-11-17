@@ -58,12 +58,13 @@ export class UI {
   // 바뀐 게 있을 때만 패널을 다시 그림 (스크롤 유지)
   signature() {
     const s = this.g.s;
-    return JSON.stringify([this.tab, this.zone, this.skillSel, this.bankSig(), s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.gearToast, s.favPrayer, s.favPet, s.sfx, s.cb, Object.values(s.effects || {}).map((e) => e.id), s.tools, s.life, s.autoPot, s.quests, s.talents, s.museum, s.trader, s.candy, this.town, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0, this.sigX ? this.sigX() : 0]);
+    return JSON.stringify([this.tab, this.zone, this.skillSel, this.bankSig(), s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.gearToast, s.favPrayer, s.favPet, s.sfx, s.cb, Object.values(s.effects || {}).map((e) => e.id), s.tools, s.life, s.autoPot, s.quests, s.talents, s.museum, s.trader, this.tab === 'town' && this.town === 'fest' ? s.candy : 0, this.town, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), 0, this.sigX ? this.sigX() : 0]);
   }
   // 전리품이 계속 들어와도 가방 때문에 다시 그리는 건 4초에 한 번 (화면을 누르면 바로)
   bankSig() {
     const now = performance.now();
-    if (this._bkS == null || now - (this._bkT || 0) > 4000) { this._bkT = now; this._bkS = JSON.stringify(this.g.s.bank); }
+    const iv = ['bank', 'gear', 'skills', 'town'].includes(this.tab) ? 4000 : 15000; // 가방을 안 보는 탭은 15초에 한 번
+    if (this._bkS == null || now - (this._bkT || 0) > iv) { this._bkT = now; this._bkS = JSON.stringify(this.g.s.bank); }
     return this._bkS;
   }
 

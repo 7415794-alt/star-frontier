@@ -572,6 +572,10 @@ P.loadoutPowers = function () {
   if (this._lo && !this._inUpd && now - (this._loT || 0) < 50) return this._lo;
   this._loT = now;
   const k = this.stateKey();
+  // 레벨만 오른 경우 (낀 장비 그대로): 8초 안에는 방금 결과를 그대로 (빠른 배속에서 레벨업마다 다시 계산하지 않게)
+  const eqk = JSON.stringify(this.s.equip);
+  if (this._lo && this._loKey !== k && this._loEq === eqk && now - (this._loFull || 0) < 8000) return this._lo;
+  this._loEq = eqk;
   const ids = Object.keys(this.s.bank).filter((id) => ITEMS[id]?.kind === 'gear');
   // 렉 줄이기: 새로 들어온 장비가 모두 확실히 약하고, 최적 장비가 가방에서 빠지지 않았으면 그대로 사용
   if (this._loKey === k && this._loIds && now - (this._loFull || 0) < 60000) { // 1분마다 한 번은 전부 다시 계산
@@ -1457,7 +1461,7 @@ U.museumLootCard = function (p) {
   if (list.length > 20) p.appendChild(h('div', 'mut', `외 ${list.length - 20}종 (한꺼번에 기증으로 모두)`));
 };
 const _sigML = U.sigX;
-U.sigX = function () { const s = this.g.s; return [..._sigML.call(this), Object.keys(s.museumLoot || {}).length, s.autoLootDonate, s.autoDecomp, this.town === 'museum' ? s.bank : 0]; };
+U.sigX = function () { const s = this.g.s; return [..._sigML.call(this), Object.keys(s.museumLoot || {}).length, s.autoLootDonate, s.autoDecomp, this.tab === 'town' && this.town === 'museum' ? this.bankSig() : 0]; };
 
 // ====================== 자동 분해 (켜기 / 끄기) ======================
 // 켜면: 스킬 재료 · 도구 업그레이드 재료 · 납품 의뢰가 모자랄 때 한 단계 위 아이템을 저절로 분해
@@ -1988,7 +1992,7 @@ function townStar(ui, p, g, s) {
 U.townExtra = [...U.townExtra, ['star', '⭐ 강화']];
 U.townFns.star = townStar;
 const _sigSF = U.sigX;
-U.sigX = function () { const f = this.g.s.sf; return [..._sigSF.call(this), f ? JSON.stringify(f.st) : '', f?.auto, f?.tries, f?.prot, f?.target, f?.slot, f?.reserve]; };
+U.sigX = function () { const f = this.g.s.sf; const on = this.tab === 'town' && this.town === 'star'; return [..._sigSF.call(this), f ? JSON.stringify(f.st) : '', f?.auto, on ? f?.tries : 0, f?.prot, f?.target, f?.slot, f?.reserve]; };
 
 // ====================== 🐾 펫 레벨: 같은 펫을 또 얻으면 레벨 업 (최대 10 · 레벨마다 효과 +12%) ======================
 import { SKILLS as SKILLS_A, RARITY as RARITY_A, PET as PET_A, SPECIAL_NAMES as SPN_A, FLAT_SP as FSP_A, huntTier as huntTier_A } from './data.js';
@@ -2195,7 +2199,7 @@ function townAch(ui, p, g, s) {
 U.townExtra = [...U.townExtra, ['ach', '🏆 업적']];
 U.townFns.ach = townAch;
 const _sigACH = U.sigX;
-U.sigX = function () { const s = this.g.s; return [..._sigACH.call(this), Object.keys(s.ach || {}).length, this.town === 'ach' ? Math.floor((s.stats?.kills || 0) / 50) : 0]; };
+U.sigX = function () { const s = this.g.s; return [..._sigACH.call(this), Object.keys(s.ach || {}).length, this.tab === 'town' && this.town === 'ach' ? Math.floor(performance.now() / 5000) : 0]; }; // 업적 화면 진행도는 5초마다
 
 // ====================== 렉 줄이기 ======================
 // 능력치 묶음(profile)은 장비 · 보너스가 바뀌지 않으면 30번까지 다시 씀 (전투 틱마다 새로 계산하지 않음)
