@@ -2456,3 +2456,34 @@ U.townFns.star = function (ui, p, g, s) {
     nb.addEventListener('click', () => ui.sfOpen(sl, !!g.s.sf?.auto));
   });
 };
+
+// ====================== 화면 흔들림 막기 ======================
+// 1) 상단 진행 패널: 같은 진행(같은 몬스터 · 같은 스킬)인 동안은 높이가 줄어들지 않음 (전리품 · 숫자 길이에 따라 위아래로 왔다갔다 하지 않게)
+const _frameStab = U.frame;
+U.frame = function () {
+  _frameStab.call(this);
+  const act = document.getElementById('act');
+  if (!act) return;
+  if (act._lockK !== act._k) { act._lockK = act._k; act._lockH = 0; act.style.minHeight = ''; }
+  const hgt = act.offsetHeight;
+  if (hgt > (act._lockH || 0)) { act._lockH = hgt; act.style.minHeight = hgt + 'px'; }
+};
+// 2) 아래 화면을 다시 그릴 때: 보고 있던 칸이 같은 자리에 오도록 스크롤을 맞춤
+const anchorKey = (e) => e.tagName + '.' + e.className + ':' + (e.textContent || '').replace(/[\d,.%+\-]+/g, '#').replace(/\s+/g, ' ').slice(0, 40);
+const _renderStab = U.render;
+U.render = function (force = false) {
+  const p = document.getElementById('panel');
+  const view = [this.tab, this.zone, this.skillSel, this.town, this.codex].join('|');
+  let anc = null;
+  if (p && !force && view === this._view && p.scrollTop > 0) {
+    const pt = p.getBoundingClientRect().top;
+    const el = [...p.querySelectorAll('.card, .row, details, summary, .h, .slot')].find((e) => e.getBoundingClientRect().bottom > pt + 4);
+    if (el) anc = { k: anchorKey(el), off: el.getBoundingClientRect().top - pt };
+  }
+  const t0 = this._rT;
+  _renderStab.call(this, force);
+  if (!anc || this._rT === t0) return; // 다시 그리지 않았으면 그대로
+  const pt = p.getBoundingClientRect().top;
+  const el = [...p.querySelectorAll('.card, .row, details, summary, .h, .slot')].find((e) => anchorKey(e) === anc.k);
+  if (el) p.scrollTop += el.getBoundingClientRect().top - pt - anc.off;
+};

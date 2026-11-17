@@ -438,8 +438,12 @@ export class UI {
       list.sort((a, c) => (c.ok - a.ok) || (c.d - a.d) || (c.it.t - a.it.t) || (c.it.r - a.it.r));
       const up = list.filter((x) => x.ok && x.d >= 0.05).length;
       const det = h('details', 'gslot');
-      if (this._gOpen.has(sl) || up || cat !== 'all') det.open = true;
-      det.addEventListener('toggle', () => { if (det.open) this._gOpen.add(sl); else this._gOpen.delete(sl); });
+      // 열림/닫힘은 처음 한 번만 정하고 그 뒤로는 그대로 (전리품이 들어올 때마다 열렸다 닫혔다 하지 않게)
+      this._gSt ||= {};
+      const sk = cat + '|' + sl;
+      if (!(sk in this._gSt)) this._gSt[sk] = this._gOpen.has(sl) || !!up || cat !== 'all';
+      det.open = this._gSt[sk];
+      det.addEventListener('toggle', () => { this._gSt[sk] = det.open; if (det.open) this._gOpen.add(sl); else this._gOpen.delete(sl); });
       det.appendChild(h('summary', '', `${SLOTS[sl].icon} <b>${SLOTS[sl].name}</b> <span class="mut">${list.length}종</span>${up ? ` <span class="up">▲ 더 좋은 장비 ${up}</span>` : ''}`));
       // 펼친 부위만 줄을 만듦 (렉 줄이기) · 처음 15개만, 나머지는 더 보기
       const fill = () => {
