@@ -2343,3 +2343,112 @@ P.weakForAll = function (id) {
   }
   return clear ? true : _wfaL.call(this, id);
 };
+
+// ====================== ⭐ 강화창: 강화 · 자동 강화를 누르면 따로 뜨는 전용 창 ======================
+// 결과 기록 (창이 열려 있는 동안의 이번 기록)
+const _sfTryW = P.sfTry;
+P.sfTry = function (sl, quiet) {
+  const c0 = this.s.coins;
+  const r = _sfTryW.call(this, sl, quiet);
+  const S = this._sfSess;
+  if (r && S) {
+    S.n++; S.cost += c0 - this.s.coins;
+    S[r === 'chance' ? 'ok' : r] = (S[r === 'chance' ? 'ok' : r] || 0) + 1;
+    S.last = { ...this.s.sf.log[0], at: performance.now() };
+  }
+  return r;
+};
+const _sfStopW = P.sfAutoStop;
+P.sfAutoStop = function (why, kind) { if (this._sfSess) this._sfSess.stop = why; return _sfStopW.call(this, why, kind); };
+const SF_RES = { ok: ['성공!', 'ok'], chance: ['찬스 타임 성공!', 'ok'], keep: ['실패 (유지)', 'keep'], down: ['실패 (하락)', 'down'], break: ['💥 파괴', 'brk'] };
+const sfNextTxt = (sl, k) => {
+  if (k >= SF_MAX) return '최대 강화';
+  const v = sfGain(k + 1), m = sfMix(sl), o = [];
+  if (m.off) o.push(`공격·힘·원거리·마법 +${Math.round(v * m.off)}`);
+  if (m.def) o.push(`방어 +${Math.round(v * m.def)}`);
+  return o.join(' · ');
+};
+U.sfOpen = function (sl, auto = false) {
+  const ui = this, g = this.g, f = g.sfInit();
+  document.getElementById('sfWin')?.remove();
+  clearInterval(this._sfWinT);
+  g._sfSess = { n: 0, cost: 0, ok: 0, keep: 0, down: 0, break: 0, stop: null, coins0: g.s.coins };
+  const st = { sl: sl || g.sfAutoPick() || 'weapon', auto, key: '' };
+  const wrap = h('div', '', '');
+  wrap.id = 'sfWin';
+  wrap.innerHTML = '<div class="sfbox"></div>';
+  document.body.appendChild(wrap);
+  const box = wrap.querySelector('.sfbox');
+  const close = () => { clearInterval(ui._sfWinT); wrap.remove(); g._sfSess = null; ui._rT = 0; ui.render(true); };
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  const draw = () => {
+    const S = g._sfSess;
+    if (!S) return;
+    const A = st.auto;
+    const sl2 = A ? (f.auto ? g.sfAutoPick() || st.sl : st.sl) : st.sl;
+    st.sl = sl2;
+    const k = g.sfStars(sl2), it = ITEMS[g.s.equip[sl2]];
+    const r = sfRate(k), prot = f.prot && sfCanProt(k), cost = sfCost(k, prot);
+    const ch = (f.chance[sl2] || 0) >= 2;
+    const L = S.last && performance.now() - S.last.at < 1500 ? S.last : null;
+    const res = L ? SF_RES[L.res] : null;
+    // 같은 내용이면 다시 그리지 않음 (버튼 누르는 중 깜빡임 방지)
+    const key = JSON.stringify([A, f.auto, sl2, k, g.s.coins, f.prot, f.target, f.slot, S.n, S.stop, !!L, ch]);
+    if (key === st.key) return;
+    st.key = key;
+    const rate = k >= SF_MAX ? '<span class="sp">최대 강화!</span>' : ch ? '<span class="sp">🎯 찬스 타임: 이번 강화 100% 성공</span>'
+      : `<div class="sfrt"><span class="ok">성공 ${pct(r.ok, 1)}</span><span>${sfDrops(k) ? '하락' : '유지'} ${pct(1 - r.ok - (prot ? 0 : r.brk), 1)}</span>${r.brk ? `<span class="brk">파괴 ${prot ? '방지됨' : pct(r.brk, 1)}</span>` : ''}</div>`;
+    const slotSel = A ? '' : `<select class="sfsl">${SLOT_IDS_SF.map((x) => `<option value="${x}"${x === sl2 ? ' selected' : ''}>${SLOTS_SF[x].icon} ${SLOTS_SF[x].name} ${g.sfStars(x)}성</option>`).join('')}</select>`;
+    const grid = SLOT_IDS_SF.map((x) => `<div class="${x === sl2 ? 'on' : ''}">${SLOTS_SF[x].icon}<b>${g.sfStars(x)}</b></div>`).join('');
+    const sess = S.n ? `이번에 ${fmt(S.n)}번 · 성공 ${S.ok} · 유지 ${S.keep} · 하락 ${S.down} · 파괴 ${S.break} · 💰 -${fmt(S.cost)}` : '아직 강화하지 않음';
+    box.innerHTML = `<div class="sfhd"><b>${A ? '🤖 자동 강화' : '⭐ 강화'}</b><button class="btn sm sfx">✕ 닫기</button></div>
+      ${slotSel}
+      <div class="sfmain">
+        <div class="sfic">${SLOTS_SF[sl2].icon}</div>
+        <div class="sfnm">${SLOTS_SF[sl2].name} <span class="mut">${it ? it.name : '비어 있음'}</span></div>
+        <div class="sfk">${k}성 ${k < SF_MAX ? `<span class="mut">→</span> ${k + 1}성` : ''}</div>
+        <div class="sfstars">${starBar(k)}</div>
+        <div class="sfres ${res ? res[1] : ''}">${res ? `${L.k}성 → ${L.nk}성 · ${res[0]}` : '&nbsp;'}</div>
+      </div>
+      ${rate}
+      <div class="mut" style="text-align:center">다음 별: ${sfNextTxt(sl2, k)}</div>
+      <div class="mut" style="text-align:center">비용 💰${fmt(cost)} · 보유 💰${fmt(g.s.coins)}</div>
+      <label class="tg" style="justify-content:center"><input type="checkbox" class="sfp"${f.prot ? ' checked' : ''}> 🛡 파괴 방지 (15~21성 · 비용 2배)</label>
+      ${A ? `<div class="sfgrid">${grid}</div><div class="mut" style="text-align:center">목표 ${f.target}성 · ${f.slot === 'all' ? '모든 부위 (낮은 것부터)' : SLOTS_SF[f.slot].name}${S.stop ? ` · <b>멈춤: ${S.stop}</b>` : ''}</div>` : ''}
+      <div class="mut" style="text-align:center">${sess}</div>
+      <div class="sfbtns">${A
+        ? `<button class="btn ${f.auto ? '' : 'pri'} big sfa">${f.auto ? '■ 자동 강화 멈춤' : '▶ 자동 강화 다시 시작'}</button>`
+        : `<button class="btn pri big sfgo"${k >= SF_MAX || g.s.coins < cost || f.auto ? ' disabled' : ''}>⭐ 강화하기</button>`}</div>
+      ${f.auto && !A ? '<div class="mut" style="text-align:center">자동 강화 중에는 직접 강화할 수 없습니다</div>' : ''}`;
+    box.querySelector('.sfx').addEventListener('click', close);
+    box.querySelector('.sfsl')?.addEventListener('change', (e) => { st.sl = e.target.value; st.key = ''; draw(); });
+    box.querySelector('.sfp').addEventListener('change', (e) => { f.prot = e.target.checked; st.key = ''; draw(); });
+    box.querySelector('.sfgo')?.addEventListener('click', () => { g.sfTry(st.sl, true); st.key = ''; draw(); });
+    box.querySelector('.sfa')?.addEventListener('click', () => { if (f.auto) g.sfAutoStop('직접 멈춤'); else { S.stop = null; g.sfAutoStart(); } st.key = ''; draw(); });
+    ui.noWrapSeg?.(box);
+  };
+  draw();
+  this._sfWinT = setInterval(() => { if (!document.getElementById('sfWin')) return clearInterval(ui._sfWinT); draw(); }, 150);
+};
+// 강화 화면의 버튼: 바로 강화하지 않고 강화창을 띄움
+const _townStarW = U.townFns.star;
+U.townFns.star = function (ui, p, g, s) {
+  _townStarW(ui, p, g, s);
+  const f = g.sfInit();
+  const sa = p.querySelector('.sfa');
+  if (sa) {
+    const nb = sa.cloneNode(true); sa.replaceWith(nb);
+    nb.addEventListener('click', () => {
+      if (f.auto) { ui.sfOpen(null, true); return; }
+      if (g.sfAutoStart()) ui.sfOpen(null, true);
+      ui._rT = 0;
+    });
+    if (f.auto) nb.textContent = '🤖 자동 강화 창 열기';
+  }
+  [...p.querySelectorAll('.row')].filter((r) => r.querySelector('button')?.textContent.includes('⭐ 강화')).forEach((row, i) => {
+    const sl = SLOT_IDS_SF[i], b = row.querySelector('button');
+    if (!sl || !b) return;
+    const nb = b.cloneNode(true); nb.disabled = false; b.replaceWith(nb);
+    nb.addEventListener('click', () => ui.sfOpen(sl, !!g.s.sf?.auto));
+  });
+};

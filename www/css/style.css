@@ -170,3 +170,30 @@ details.card > summary { cursor: pointer; }
 .grade.g5, .grade.g6 { color: #ff9f43; }
 .row.ach.on { opacity: .85; }
 .plv { font-size: 11px; color: #ffd84d; border: 1px solid #ffd84d55; border-radius: 6px; padding: 0 4px; }
+
+/* 강화창 */
+#sfWin { position: fixed; inset: 0; background: rgba(0, 0, 0, .65); display: flex; align-items: center; justify-content: center; z-index: 55; padding: 16px; }
+#sfWin .sfbox { background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; padding: 14px; width: min(100%, 420px); max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+#sfWin .sfhd { display: flex; justify-content: space-between; align-items: center; font-size: 16px; }
+#sfWin select { width: 100%; padding: 6px; border-radius: 8px; background: var(--card); color: var(--txt); border: 1px solid var(--line); font-size: 15px; }
+#sfWin .sfmain { text-align: center; background: var(--card); border-radius: 12px; padding: 12px 8px; }
+#sfWin .sfic { font-size: 44px; line-height: 1.1; }
+#sfWin .sfnm { font-weight: 700; }
+#sfWin .sfk { font-size: 22px; font-weight: 800; color: var(--gold); }
+#sfWin .sfstars { font-size: 15px; word-break: break-all; }
+#sfWin .sfres { margin-top: 6px; font-size: 18px; font-weight: 800; min-height: 26px; }
+#sfWin .sfres.ok { color: var(--good); animation: sfpop .35s ease-out; }
+#sfWin .sfres.keep { color: var(--mut); animation: sfpop .35s ease-out; }
+#sfWin .sfres.down { color: #fb923c; animation: sfpop .35s ease-out; }
+#sfWin .sfres.brk { color: var(--bad); animation: sfshake .4s; }
+@keyframes sfpop { from { transform: scale(1.5); opacity: .3; } to { transform: scale(1); opacity: 1; } }
+@keyframes sfshake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+#sfWin .sfrt { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+#sfWin .sfrt span { background: var(--card); border-radius: 8px; padding: 3px 8px; }
+#sfWin .sfrt .ok { color: var(--good); } #sfWin .sfrt .brk { color: var(--bad); }
+#sfWin .sfgrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+#sfWin .sfgrid div { background: var(--card); border-radius: 8px; text-align: center; padding: 3px 0; font-size: 13px; }
+#sfWin .sfgrid div b { display: block; color: var(--gold); }
+#sfWin .sfgrid div.on { outline: 2px solid var(--gold); }
+#sfWin .sfbtns { display: flex; justify-content: center; }
+#sfWin .btn.big { width: 100%; padding: 12px; font-size: 17px; }
