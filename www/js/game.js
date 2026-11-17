@@ -178,7 +178,7 @@ export class Game {
     addSp(ITEMS[this.s.life]?.fx);
     for (const e of Object.values(this.s.effects || {})) addSp(ITEMS[e.id]?.fx);
     for (const f of this.extraSources()) addSp(f);
-    for (const id of this.s.pets) addSp(this.petFx ? this.petFx(id) : PET[id]?.fx); // 펫 레벨만큼 효과 증가
+    if (this.petsFxSum) addSp(this.petsFxSum()); else for (const id of this.s.pets) addSp(PET[id]?.fx); // 펫 레벨만큼 효과 증가 (합계는 기억해 둠)
     this.rt.cache = b;
     return b;
   }

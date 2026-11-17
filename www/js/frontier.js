@@ -2244,3 +2244,69 @@ P.fx = function (at, text, kind) {
   this[k] = now;
   return _fxL.call(this, at, text, kind);
 };
+
+// ====================== 렉 줄이기 3: 최적 장비 찾기 가볍게 ======================
+// 펫 효과 합계는 펫 · 펫 레벨이 바뀔 때만 다시 계산
+P.petsFxSum = function () {
+  const k = this.s.pets.length + '|' + sumKey(this.s.petLv);
+  if (this._pfsK === k) return this._pfsV;
+  const o = {};
+  for (const id of this.s.pets) for (const [kk, v] of Object.entries(this.petFx(id))) o[kk] = (o[kk] || 0) + v;
+  this._pfsK = k; this._pfsV = o;
+  return o;
+};
+// 전투 방식별 대략 점수 (후보를 고르는 데만 사용 · 실제 비교는 전투력으로)
+const roughScore = (it, style) => {
+  const st = it.st || {};
+  const off = style === 'melee' ? (st.atk || 0) + (st.str || 0) : style === 'ranged' ? 2 * (st.rng || 0) : 2 * (st.mag || 0);
+  const v = off + 0.8 * (st.def || 0) + 3000 * ((st.ls || 0) + (st.dr || 0));
+  return it.slot === 'weapon' ? v / (it.speed || 2.4) : v;
+};
+const LO_TOP = 5; // 부위마다 대략 점수 상위 5개만 실제로 껴 봄
+P.bestLoadout = function (style) {
+  const s = this.s, eq0 = { ...s.equip };
+  const pool = {};
+  for (const id of new Set([...Object.keys(s.bank), ...Object.values(eq0)])) {
+    const it = ITEMS[id];
+    if (it?.kind !== 'gear' || !this.canEquip(id)) continue;
+    if (it.slot === 'weapon' && it.style !== style) continue;
+    (pool[it.slot] ||= []).push(id);
+  }
+  for (const sl of Object.keys(pool)) {
+    const l = pool[sl].sort((a, b) => roughScore(ITEMS[b], style) - roughScore(ITEMS[a], style)).slice(0, LO_TOP);
+    if (eq0[sl] && !l.includes(eq0[sl]) && (sl !== 'weapon' || ITEMS[eq0[sl]]?.style === style)) l.push(eq0[sl]);
+    pool[sl] = l;
+  }
+  const weapons = pool.weapon || [];
+  if (!weapons.length) return null;
+  const ev = (eq) => { s.equip = eq; this.dirty(); return this.powerRaw(); };
+  const eq = { ...eq0 };
+  let bw = null, bp = -1;
+  try {
+    for (const w of weapons) { const pw = ev({ ...eq, weapon: w }); if (pw > bp) { bp = pw; bw = w; } }
+    eq.weapon = bw;
+    for (const sl of SLOT_IDS) {
+      if (sl === 'weapon') continue;
+      let cur = ev(eq), pk = eq[sl];
+      for (const id of pool[sl] || []) { const pw = ev({ ...eq, [sl]: id }); if (pw > cur) { cur = pw; pk = id; } }
+      if (pk) eq[sl] = pk;
+    }
+    return { eq, power: ev(eq) };
+  } finally { s.equip = eq0; this.dirty(); }
+};
+// 모든 방식에서 약한지: 대략 점수로 확실히 약하면 바로 판정 (전투력 계산 생략)
+const _wfaL = P.weakForAll;
+P.weakForAll = function (id) {
+  const it = ITEMS[id];
+  if (!it || it.kind !== 'gear') return false;
+  const lo = this.loadoutPowers();
+  let clear = true;
+  for (const st of ['melee', 'ranged', 'magic']) {
+    const L = lo[st];
+    if (!L) continue;
+    if (it.slot === 'weapon' && it.style !== st) continue;
+    const cur = ITEMS[L.eq[it.slot]];
+    if (!cur || Object.values(L.eq).includes(id) || roughScore(it, st) >= 0.8 * roughScore(cur, st)) { clear = false; break; }
+  }
+  return clear ? true : _wfaL.call(this, id);
+};
