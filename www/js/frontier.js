@@ -1797,3 +1797,165 @@ U.townFns.boss = function (ui, p, g, s) {
 };
 const _sigCP = U.sigX;
 U.sigX = function () { return [..._sigCP.call(this), this.g.s.cpUsed || 0, this.g.s.wb?.tk]; };
+
+// ====================== ⭐ 별 강화: 부위마다 0 ~ 30성 · 성공 / 실패(하락) / 파괴 · 자동 강화 ======================
+// 강화 수치는 '부위'에 붙음 → 더 좋은 장비로 바꿔 껴도 별은 그대로
+import { SLOTS as SLOTS_SF, SLOT_IDS as SLOT_IDS_SF } from './data.js';
+const SF_MAX = 30;
+const SF_SAFE = [15, 20, 25]; // 실패해도 떨어지지 않는 별
+const sfBreakTo = (k) => (k < 22 ? 12 : 20); // 파괴되면 이 별로 (22성부터는 20성)
+const SF_HI = [0.32, 0.3, 0.28, 0.26, 0.24, 0.22, 0.2, 0.18]; // 22 ~ 29성 성공 확률
+const SF_OFF = ['atk', 'str', 'rng', 'mag'];
+// 부위별 능력치 비율: 무기 = 공격 계열 / 방어구 = 방어 + 공격 계열 일부 / 장신구 = 공격 계열 위주
+const sfMix = (sl) => (sl === 'weapon' ? { off: 1, def: 0 } : sl === 'ring' || sl === 'amulet' ? { off: 0.6, def: 0.3 } : { off: 0.35, def: 1 });
+// k번째 별 하나가 주는 기본 수치 (뒤로 갈수록 크게)
+const sfGain = (k) => 2 + 0.8 * k + (k > 15 ? 0.5 * (k - 15) ** 1.7 : 0);
+export const sfRate = (k) => {
+  const ok = k < 15 ? Math.max(0.3, 0.95 - 0.05 * k) : k < 22 ? 0.3 : SF_HI[k - 22];
+  const brk = k < 15 ? 0 : k < 18 ? 0.021 : k < 20 ? 0.028 : k < 22 ? 0.035 : 0.04 + 0.004 * (k - 22);
+  return { ok, brk };
+};
+const sfCost = (k, prot) => Math.round(200 * (k + 1) ** 2 * (prot ? 2 : 1));
+const sfCanProt = (k) => k >= 15 && k < 22;
+const sfDrops = (k) => k >= 15 && !SF_SAFE.includes(k);
+P.sfInit = function () {
+  this.s.sf ||= { st: {}, auto: false, target: 15, slot: 'all', reserve: 0.1, prot: false, chance: {}, log: [], tries: 0, breaks: 0 };
+  const f = this.s.sf;
+  f.st ||= {}; f.chance ||= {}; f.log ||= [];
+  return f;
+};
+P.sfStars = function (sl) { return this.s.sf?.st?.[sl] || 0; };
+P.sfBonus = function () {
+  const st = this.s.sf?.st || {};
+  const key = JSON.stringify(st);
+  if (this._sfB?.key === key) return this._sfB.v;
+  const v = {};
+  for (const sl of SLOT_IDS_SF) {
+    const n = st[sl] || 0;
+    if (!n) continue;
+    let tot = 0;
+    for (let k = 1; k <= n; k++) tot += sfGain(k);
+    const m = sfMix(sl);
+    if (m.off) for (const k of SF_OFF) v[k + 'Flat'] = (v[k + 'Flat'] || 0) + tot * m.off;
+    if (m.def) v.defFlat = (v.defFlat || 0) + tot * m.def;
+  }
+  for (const k of Object.keys(v)) v[k] = Math.round(v[k]);
+  this._sfB = { key, v };
+  return v;
+};
+const _extraSF = P.extraSources;
+P.extraSources = function () { return [..._extraSF.call(this), this.sfBonus()]; };
+// 한 번 강화 · 결과: 'ok' | 'keep' | 'down' | 'break' | 'chance' | null(못 함)
+P.sfTry = function (sl, quiet = false) {
+  const f = this.sfInit(), k = this.sfStars(sl);
+  if (!SLOTS_SF[sl] || k >= SF_MAX) return null;
+  const prot = f.prot && sfCanProt(k);
+  const cost = sfCost(k, prot);
+  if (this.s.coins < cost) { if (!quiet) this.toast(`💰 골드가 부족합니다 (${fmt(cost)})`, 'bad'); return null; }
+  this.s.coins -= cost;
+  f.tries++;
+  const r = sfRate(k);
+  let res;
+  if ((f.chance[sl] || 0) >= 2) { res = 'chance'; f.st[sl] = k + 1; f.chance[sl] = 0; }
+  else {
+    const x = Math.random();
+    if (x < r.ok) { res = 'ok'; f.st[sl] = k + 1; f.chance[sl] = 0; }
+    else if (!prot && x < r.ok + r.brk) { res = 'break'; f.st[sl] = sfBreakTo(k); f.chance[sl] = 0; f.breaks++; }
+    else if (sfDrops(k)) { res = 'down'; f.st[sl] = k - 1; f.chance[sl] = (f.chance[sl] || 0) + 1; }
+    else { res = 'keep'; f.chance[sl] = 0; }
+  }
+  const nk = f.st[sl];
+  const txt = { ok: '성공', chance: '찬스 타임 성공', keep: '실패 (유지)', down: '실패 (하락)', break: '💥 파괴' }[res];
+  f.log = [{ sl, k, nk, res, txt }, ...f.log].slice(0, 10);
+  this.dirty();
+  if (!quiet || res === 'break' || ((res === 'ok' || res === 'chance') && nk >= 20)) {
+    this.toast(`⭐ ${SLOTS_SF[sl].name} ${k}성 → ${nk}성 · ${txt}`, res === 'ok' || res === 'chance' ? 'pet' : res === 'break' ? 'bad' : '');
+  }
+  if ((res === 'ok' || res === 'chance') && nk >= 22 && this.s.cele !== false) this.celebrate(`⭐ ${SLOTS_SF[sl].name} ${nk}성 달성!`);
+  return res;
+};
+// 자동 강화: 목표 별까지 (모든 부위면 별이 가장 낮은 부위부터) · 골드가 남겨 둘 만큼만 쓰면 멈춤
+P.sfAutoPick = function () {
+  const f = this.sfInit();
+  const list = f.slot === 'all' ? SLOT_IDS_SF : [f.slot];
+  let best = null;
+  for (const sl of list) { const n = this.sfStars(sl); if (n < f.target && n < SF_MAX && (best == null || n < this.sfStars(best))) best = sl; }
+  return best;
+};
+P.sfAutoStop = function (why, kind = 'info') { const f = this.sfInit(); f.auto = false; this._sfT = 0; this.toast(`⭐ 자동 강화 멈춤 · ${why}`, kind); };
+P.sfAutoTick = function (dt) {
+  const f = this.s.sf;
+  if (!f?.auto) return;
+  this._sfT = (this._sfT || 0) + dt;
+  let n = 0;
+  while (this._sfT >= 0.25 && n < 8) {
+    this._sfT -= 0.25; n++;
+    const sl = this.sfAutoPick();
+    if (!sl) return this.sfAutoStop(`목표 ${f.target}성 달성!`, 'pet');
+    const k = this.sfStars(sl), cost = sfCost(k, f.prot && sfCanProt(k));
+    if (this.s.coins - cost < (f.resAmt || 0)) return this.sfAutoStop('골드 부족 (남겨 둘 골드 도달)', 'bad');
+    this.sfTry(sl, true);
+  }
+};
+P.sfAutoStart = function () {
+  const f = this.sfInit();
+  if (!this.sfAutoPick()) { this.toast(`이미 목표 ${f.target}성입니다`, 'bad'); return false; }
+  f.resAmt = Math.floor(this.s.coins * (f.reserve || 0));
+  f.auto = true;
+  this._sfT = 0;
+  return true;
+};
+const _updSF = P.update;
+P.update = function (dt) { _updSF.call(this, dt); this.sfAutoTick(dt); };
+
+// ---- 화면 ----
+const SF_TARGETS = [5, 10, 12, 15, 17, 18, 20, 22, 25, 30];
+const starBar = (n) => `<span style="color:#ffd84d;letter-spacing:-1px">${'★'.repeat(Math.min(n, 15))}</span>${n > 15 ? `<span style="color:#ff9f43;letter-spacing:-1px">${'★'.repeat(n - 15)}</span>` : ''}`;
+function townStar(ui, p, g, s) {
+  const f = g.sfInit();
+  const b = g.sfBonus();
+  const bonusTxt = ['atk', 'str', 'def', 'rng', 'mag'].filter((k) => b[k + 'Flat']).map((k) => `${STATS[k].name} +${fmt(b[k + 'Flat'])}`).join(', ');
+  const top = h('div', 'card', `<b>⭐ 별 강화</b> <span class="mut">시도 ${fmt(f.tries)} · 파괴 ${fmt(f.breaks)}</span>
+    <div class="mut">부위마다 최대 ${SF_MAX}성 · 별은 부위에 붙어서 장비를 바꿔도 그대로 · 별마다 <b>고정 능력치</b> (무기 = 공격 · 힘 · 원거리 · 마법 / 방어구 = 방어 + 공격 계열 일부 / 장신구 = 공격 계열 위주)</div>
+    <div class="mut">15성부터: 실패하면 1성 하락 (15 · 20 · 25성은 하락 없음) · 💥 파괴되면 12성으로 (22성부터는 20성으로) · 연속 2번 하락하면 다음은 찬스 타임 (100% 성공)</div>
+    <div style="margin-top:6px">강화 보너스: <span class="sp">${bonusTxt || '없음'}</span></div>`);
+  p.appendChild(top);
+  // 자동 강화
+  const a = h('div', 'card', `<b>🤖 자동 강화</b> ${f.auto ? '<span class="sp">진행 중…</span>' : ''}
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">
+      <label class="tg">목표 <select class="sft">${SF_TARGETS.map((t) => `<option value="${t}"${f.target === t ? ' selected' : ''}>${t}성</option>`).join('')}</select></label>
+      <label class="tg">부위 <select class="sfs"><option value="all"${f.slot === 'all' ? ' selected' : ''}>모든 부위 (낮은 것부터)</option>${SLOT_IDS_SF.map((sl) => `<option value="${sl}"${f.slot === sl ? ' selected' : ''}>${SLOTS_SF[sl].icon} ${SLOTS_SF[sl].name}</option>`).join('')}</select></label>
+      <label class="tg">골드 남기기 <select class="sfr">${[0, 0.1, 0.3, 0.5, 0.8].map((v) => `<option value="${v}"${(f.reserve || 0) === v ? ' selected' : ''}>${v ? pct(v, 0) : '안 남김'}</option>`).join('')}</select></label>
+      <label class="tg"><input type="checkbox" class="sfp"${f.prot ? ' checked' : ''}> 🛡 파괴 방지 (15~21성 · 비용 2배)</label>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:6px"><button class="btn ${f.auto ? '' : 'pri'} sfa">${f.auto ? '■ 자동 강화 멈춤' : '▶ 자동 강화 시작'}</button></div>
+    <div class="mut">0.25초마다 1번 강화 · 목표에 닿거나 골드가 남겨 둘 만큼 줄면 멈춤 · 시작할 때 가진 골드 기준</div>`);
+  a.querySelector('.sft').addEventListener('change', (e) => { f.target = +e.target.value; });
+  a.querySelector('.sfs').addEventListener('change', (e) => { f.slot = e.target.value; });
+  a.querySelector('.sfr').addEventListener('change', (e) => { f.reserve = +e.target.value; });
+  a.querySelector('.sfp').addEventListener('change', (e) => { f.prot = e.target.checked; });
+  a.querySelector('.sfa').addEventListener('click', () => { if (f.auto) g.sfAutoStop('직접 멈춤'); else g.sfAutoStart(); ui._rT = 0; });
+  p.appendChild(a);
+  // 부위 목록
+  for (const sl of SLOT_IDS_SF) {
+    const k = g.sfStars(sl), it = ITEMS[s.equip[sl]];
+    const r = sfRate(k), prot = f.prot && sfCanProt(k), cost = sfCost(k, prot);
+    const ch = (f.chance[sl] || 0) >= 2;
+    const info = k >= SF_MAX ? '<span class="sp">최대 강화!</span>'
+      : ch ? '<span class="sp">🎯 찬스 타임: 다음 강화 100% 성공</span>'
+      : `성공 ${pct(r.ok, 1)} · ${sfDrops(k) ? '실패 시 하락' : '실패 시 유지'} ${pct(1 - r.ok - (prot ? 0 : r.brk), 1)}${r.brk ? ` · 💥 파괴 ${prot ? '방지됨' : pct(r.brk, 1)}` : ''} · 💰${fmt(cost)}`;
+    const row = h('div', 'row', `<div class="ic">${SLOTS_SF[sl].icon}</div><div class="info"><div class="nm">${SLOTS_SF[sl].name} <b>${k}성</b> <span class="mut">${it ? it.name : '비어 있음'}</span></div><div>${starBar(k)}</div><div class="mut">${info}</div></div><button class="btn sm pri"${k >= SF_MAX || s.coins < cost || f.auto ? ' disabled' : ''}>⭐ 강화</button>`);
+    row.querySelector('button').addEventListener('click', () => { g.sfTry(sl); ui._rT = 0; });
+    p.appendChild(row);
+  }
+  if (f.log.length) p.appendChild(h('div', 'card mut', `<b>최근 결과</b><br>${f.log.map((x) => `${SLOTS_SF[x.sl].icon} ${x.k}성 → ${x.nk}성 · ${x.txt}`).join('<br>')}`));
+  // 확률표
+  const rows = [];
+  for (let k = 0; k < SF_MAX; k++) { const r = sfRate(k); rows.push(`${k}→${k + 1}성: 성공 ${pct(r.ok, 1)}${r.brk ? ` · 파괴 ${pct(r.brk, 1)}` : ''} · 💰${fmt(sfCost(k))} · 별 하나 +${Math.round(sfGain(k + 1))}`); }
+  const t = h('details', 'card mut', `<summary>📋 확률 · 비용표</summary>${rows.join('<br>')}`);
+  p.appendChild(t);
+}
+U.townExtra = [...U.townExtra, ['star', '⭐ 강화']];
+U.townFns.star = townStar;
+const _sigSF = U.sigX;
+U.sigX = function () { const f = this.g.s.sf; return [..._sigSF.call(this), f ? JSON.stringify(f.st) : '', f?.auto, f?.tries, f?.prot, f?.target, f?.slot, f?.reserve]; };
