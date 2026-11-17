@@ -2860,3 +2860,80 @@ U.frame = function () {
     it.querySelector('.xpp').textContent = L >= MAX_L ? 'MAX' : (p * 100).toFixed(1) + '%';
   }
 };
+
+// ====================== ✨ 신성 확장: 최고 레벨 999 · 레벨마다 큰 고정 능력치 + % ======================
+export const DIV_MAX = 999;
+// 200레벨까지는 원래 표 · 그 뒤는 레벨마다 조금씩 더 많은 경험치 (999레벨까지 약 6억 XP)
+const DIV_XP = (() => {
+  const t = XP_T.slice(0, MAX_L + 1);
+  const s200 = XP_T[MAX_L] - XP_T[MAX_L - 1];
+  for (let L = MAX_L + 1; L <= DIV_MAX; L++) t[L] = Math.floor(t[L - 1] + s200 * (1 + (L - MAX_L) / 250));
+  return t;
+})();
+const divLevelOf = (xp) => {
+  let lo = 1, hi = DIV_MAX;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (xp >= DIV_XP[mid]) lo = mid; else hi = mid - 1; }
+  return lo;
+};
+const _lvlDiv = P.lvl;
+P.lvl = function (id) { return id === 'div' ? divLevelOf(this.s.xp.div || 0) : _lvlDiv.call(this, id); };
+P.divMax = DIV_MAX;
+P.divXpAt = (L) => DIV_XP[Math.min(DIV_MAX, L)];
+// 신성 보너스: 공격 · 힘 · 원거리 · 마법 고정 +0.9 x 레벨^1.2 (방어는 1.5배) · 모두 +0.04% x 레벨
+export const divBonusAt = (L) => {
+  const f = Math.round(0.9 * L ** 1.2), pc = 0.0004 * L;
+  return { atkFlat: f, strFlat: f, rngFlat: f, magFlat: f, defFlat: Math.round(f * 1.5), atkPct: pc, strPct: pc, rngPct: pc, magPct: pc, defPct: pc };
+};
+P.divBonus = function () {
+  const L = this.lvl('div');
+  if (this._dvB?.L === L) return this._dvB.v;
+  this._dvB = { L, v: divBonusAt(L) };
+  return this._dvB.v;
+};
+const _extraDiv = P.extraSources;
+P.extraSources = function () { return [..._extraDiv.call(this), this.divBonus()]; };
+// 경험치 글자 · 막대도 999레벨 기준
+const divP = (g) => { const L = g.lvl('div'), xp = g.s.xp.div || 0; return { L, xp, p: L >= DIV_MAX ? 1 : (xp - DIV_XP[L]) / (DIV_XP[L + 1] - DIV_XP[L]) }; };
+const _xpTextDiv = U.xpText;
+U.xpText = function (id) {
+  if (id !== 'div') return _xpTextDiv.call(this, id);
+  const { L, xp } = divP(this.g);
+  return L >= DIV_MAX ? `최고 레벨 · ${fmt(xp)} XP` : `${fmt(xp - DIV_XP[L])} / ${fmt(DIV_XP[L + 1] - DIV_XP[L])} XP`;
+};
+const _lvBarDiv = U.lvBar;
+U.lvBar = function (id) {
+  if (id !== 'div') return _lvBarDiv.call(this, id);
+  return `<div class="lvbar"><div style="width:${pct(divP(this.g).p, 1)}"></div></div>`;
+};
+// 위쪽 경험치 막대: 신성은 999레벨 기준
+const _frameDivXp = U.frame;
+U.frame = function () {
+  _frameDivXp.call(this);
+  const it = document.querySelector('#act .xpstrip .xpi[data-k="div"]');
+  if (!it) return;
+  const { L, p } = divP(this.g);
+  it.querySelector('i').textContent = L;
+  it.querySelector('.xpb > div').style.width = (p * 100).toFixed(1) + '%';
+  it.querySelector('.xpp').textContent = L >= DIV_MAX ? 'MAX' : (p * 100).toFixed(2) + '%';
+};
+// 신성 화면에 보너스 안내
+const _tabDiv = U.tabDiv;
+U.tabDiv = function (p) {
+  _tabDiv.call(this, p);
+  const g = this.g, L = g.lvl('div'), b = divBonusAt(L), nx = divBonusAt(Math.min(DIV_MAX, L + 1));
+  const first = [...p.querySelectorAll('.card')].find((e) => e.textContent.includes('신성 Lv')) || p.querySelector('.card');
+  const c = h('div', 'card', `<b>✨ 신성 보너스</b> <span class="mut">최고 Lv ${DIV_MAX}</span>
+    <div class="sp">공격 · 힘 · 원거리 · 마법 +${fmt(b.atkFlat)} · 방어 +${fmt(b.defFlat)} · 모두 +${(b.atkPct * 100).toFixed(1)}%</div>
+    <div class="mut">다음 레벨: 고정 +${fmt(nx.atkFlat - b.atkFlat)} (방어 +${fmt(nx.defFlat - b.defFlat)}) · % +0.04% · Lv 500: 고정 +${fmt(divBonusAt(500).atkFlat)} · +20% / Lv 999: 고정 +${fmt(divBonusAt(999).atkFlat)} · +40%</div>`);
+  if (first) first.after(c); else p.appendChild(c);
+};
+// 몬스터 밸런스: 신성 보너스만큼 100레벨 이상 몬스터를 더 강하게 (몬스터 레벨만큼 신성을 올린 플레이어 기준 · 230레벨 체력 +12% · 피해 +10% · 명중 · 방어 +6%)
+for (const m of Object.values(MONSTER)) {
+  if (m._divBal) continue;
+  const k = Math.max(0, Math.min(1, (m.lvl - 100) / 130));
+  m.hp = Math.round(m.hp * (1 + 0.12 * k));
+  m.str = Math.round(m.str * (1 + 0.1 * k));
+  m.atk = Math.round(m.atk * (1 + 0.06 * k));
+  m.def = Math.round(m.def * (1 + 0.06 * k));
+  m._divBal = true;
+}
