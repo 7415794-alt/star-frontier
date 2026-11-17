@@ -2876,7 +2876,9 @@ const divLevelOf = (xp) => {
   return lo;
 };
 const _lvlDiv = P.lvl;
-P.lvl = function (id) { return id === 'div' ? divLevelOf(this.s.xp.div || 0) : _lvlDiv.call(this, id); };
+// 전투 스킬(공격 · 힘 · 방어 · 원거리 · 마법)과 신성은 200을 넘어 9999까지
+export const EXT_IDS = new Set(['atk', 'str', 'def', 'rng', 'mag', 'div']);
+P.lvl = function (id) { return EXT_IDS.has(id) ? divLevelOf(this.s.xp[id] || 0) : _lvlDiv.call(this, id); };
 P.divMax = DIV_MAX;
 P.divXpAt = (L) => DIV_XP[Math.min(DIV_MAX, L)];
 // 신성 보너스: 공격 · 힘 · 원거리 · 마법 고정 +0.9 x 레벨^1.2 (방어는 1.5배) · 모두 % (1000레벨까지 레벨마다 +0.04%, 그 뒤로 +0.01%)
@@ -2893,28 +2895,29 @@ P.divBonus = function () {
 const _extraDiv = P.extraSources;
 P.extraSources = function () { return [..._extraDiv.call(this), this.divBonus()]; };
 // 경험치 글자 · 막대도 999레벨 기준
-const divP = (g) => { const L = g.lvl('div'), xp = g.s.xp.div || 0; return { L, xp, p: L >= DIV_MAX ? 1 : (xp - DIV_XP[L]) / (DIV_XP[L + 1] - DIV_XP[L]) }; };
+const divP = (g, id = 'div') => { const L = g.lvl(id), xp = g.s.xp[id] || 0; return { L, xp, p: L >= DIV_MAX ? 1 : (xp - DIV_XP[L]) / (DIV_XP[L + 1] - DIV_XP[L]) }; };
 const _xpTextDiv = U.xpText;
 U.xpText = function (id) {
-  if (id !== 'div') return _xpTextDiv.call(this, id);
-  const { L, xp } = divP(this.g);
+  if (!EXT_IDS.has(id)) return _xpTextDiv.call(this, id);
+  const { L, xp } = divP(this.g, id);
   return L >= DIV_MAX ? `최고 레벨 · ${fmt(xp)} XP` : `${fmt(xp - DIV_XP[L])} / ${fmt(DIV_XP[L + 1] - DIV_XP[L])} XP`;
 };
 const _lvBarDiv = U.lvBar;
 U.lvBar = function (id) {
-  if (id !== 'div') return _lvBarDiv.call(this, id);
-  return `<div class="lvbar"><div style="width:${pct(divP(this.g).p, 1)}"></div></div>`;
+  if (!EXT_IDS.has(id)) return _lvBarDiv.call(this, id);
+  return `<div class="lvbar"><div style="width:${pct(divP(this.g, id).p, 1)}"></div></div>`;
 };
 // 위쪽 경험치 막대: 신성은 999레벨 기준
 const _frameDivXp = U.frame;
 U.frame = function () {
   _frameDivXp.call(this);
-  const it = document.querySelector('#act .xpstrip .xpi[data-k="div"]');
-  if (!it) return;
-  const { L, p } = divP(this.g);
-  it.querySelector('i').textContent = L;
-  it.querySelector('.xpb > div').style.width = (p * 100).toFixed(1) + '%';
-  it.querySelector('.xpp').textContent = L >= DIV_MAX ? 'MAX' : (p * 100).toFixed(2) + '%';
+  for (const it of document.querySelectorAll('#act .xpstrip .xpi')) {
+    if (!EXT_IDS.has(it.dataset.k)) continue;
+    const { L, p } = divP(this.g, it.dataset.k);
+    it.querySelector('i').textContent = L;
+    it.querySelector('.xpb > div').style.width = (p * 100).toFixed(1) + '%';
+    it.querySelector('.xpp').textContent = L >= DIV_MAX ? 'MAX' : (p * 100).toFixed(2) + '%';
+  }
 };
 // 신성 화면에 보너스 안내
 const _tabDiv = U.tabDiv;
@@ -2940,11 +2943,11 @@ for (const m of Object.values(MONSTER)) {
 
 // ====================== 📈 맨 위 경험치 막대: 다음 전투 레벨까지 % (전투 레벨이 최고면 지금 오르는 스킬) ======================
 const fracLv = (g, id) => {
-  if (id === 'div') { const L = g.lvl('div'); return L >= DIV_MAX ? L : L + Math.max(0, Math.min(1, ((g.s.xp.div || 0) - DIV_XP[L]) / (DIV_XP[L + 1] - DIV_XP[L]))); }
+  if (EXT_IDS.has(id)) { const L = g.lvl(id); return L >= DIV_MAX ? L : L + Math.max(0, Math.min(1, ((g.s.xp[id] || 0) - DIV_XP[L]) / (DIV_XP[L + 1] - DIV_XP[L]))); }
   const L = g.lvl(id), xp = g.s.xp[id] || 0;
   return L >= MAX_L ? L : L + Math.max(0, Math.min(1, (xp - XP_T[L]) / (XP_T[L + 1] - XP_T[L])));
 };
-const CL_MAX = Math.floor(MAX_L * (0.25 + 0.75 + 0.3 + 0.15));
+const CL_MAX = Math.floor(DIV_MAX * (0.25 + 0.75 + 0.3 + 0.15));
 P.combatFrac = function () {
   const st = [(fracLv(this, 'atk') + fracLv(this, 'str')) / 2, fracLv(this, 'rng'), fracLv(this, 'mag')].sort((a, b) => b - a);
   return fracLv(this, 'def') * 0.25 + st[0] * 0.75 + st[1] * 0.3 + st[2] * 0.15;
@@ -2966,10 +2969,15 @@ U.frame = function () {
     p = Math.max(0, Math.min(0.99999, v - cl));
     label = `EXP ⚔ 전투 Lv ${cl} → ${cl + 1}`;
   } else {
-    const id = this.xpStripIds().find((k) => (k === 'div' ? g.lvl('div') < DIV_MAX : g.lvl(k) < MAX_L));
+    const id = this.xpStripIds().find((k) => (EXT_IDS.has(k) ? g.lvl(k) < DIV_MAX : g.lvl(k) < MAX_L));
     if (id) { const f = fracLv(g, id); p = f - Math.floor(f); label = `EXP ${SKILL[id].icon} ${SKILL[id].name} Lv ${Math.floor(f)} → ${Math.floor(f) + 1}`; }
     else { p = 1; label = `EXP ⚔ 전투 Lv ${cl} (최고)`; }
   }
   const txt = `${label} · <b>${p >= 1 ? 'MAX' : (p * 100).toFixed(2) + '%'}</b>`;
   if (el._t !== txt) { el._t = txt; el.querySelector('.etx').innerHTML = txt; el.querySelector('.ebar > div').style.width = (p * 100).toFixed(2) + '%'; }
 };
+
+// 최대 체력: 방어 레벨이 아주 높아도 가볍게 (레벨별 결과 기억)
+import { baseHp as baseHpX } from './data.js';
+const _hpMemo = new Map();
+C.maxHp = (p) => { const L = p.lv.def; let v = _hpMemo.get(L); if (v == null) { v = baseHpX(L); _hpMemo.set(L, v); } return v; };
