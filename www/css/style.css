@@ -197,3 +197,13 @@ details.card > summary { cursor: pointer; }
 #sfWin .sfgrid div.on { outline: 2px solid var(--gold); }
 #sfWin .sfbtns { display: flex; justify-content: center; }
 #sfWin .btn.big { width: 100%; padding: 12px; font-size: 17px; }
+
+/* 상단 진행 패널: 숫자가 바뀌어도 줄 수 · 높이가 변하지 않게 */
+#act { font-variant-numeric: tabular-nums; }
+#act .actinfo { flex-wrap: nowrap; align-items: center; }
+#act .actinfo .info { flex: 1; min-width: 0; line-height: 1.4; height: 2.8em; overflow: hidden; display: flex; align-items: center; } /* 늘 2줄 높이 */
+#act .sess { line-height: 1.4; height: 4.2em; overflow: hidden; }
+#act .bgh { font-size: 11px; line-height: 1.4; height: 2.8em; overflow: hidden; margin-top: 2px; }
+#act .skillact .grow { min-width: 0; }
+#act .bgh .l1, #act .bgh .l2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#act .bgh:empty { height: 0; margin: 0; }

@@ -699,9 +699,13 @@ U.frameX = function (act, A) {
   if (!d) { d = h('div', 'bgh mut'); (act.querySelector('.grow') || act).appendChild(d); this._bghT = 0; }
   if (this._bghT && performance.now() - this._bghT < 250) return;
   this._bghT = performance.now();
-  if (!g.bgHunting()) { d.textContent = ''; return; }
+  if (!g.bgHunting()) { d.textContent = ''; d._l = null; return; }
   const m = MONSTER[g.s.huntMon], mx = g.maxHp();
-  d.textContent = `⚔ 함께 사냥: ${m.icon} ${m.name} ${rt.mon ? `${fmt(rt.monHp)}/${fmt(m.hp)}` : rt.dead > 0 ? `· 부활까지 ${rt.dead.toFixed(0)}초` : '· 다음 몬스터…'} · 내 체력 ${fmt(Math.max(0, rt.hp))}/${fmt(mx)} · 처치 ${fmt(g.s.kills?.[m.id] || 0)}`;
+  // 늘 2줄: 1줄 = 사냥 중인 몬스터 / 2줄 = 체력 · 처치 (숫자가 바뀌어도 줄 수 그대로)
+  const l2 = `${rt.mon ? `적 ${fmt(rt.monHp)}/${fmt(m.hp)}` : rt.dead > 0 ? `부활까지 ${rt.dead.toFixed(0)}초` : '다음 몬스터'} · ❤ ${fmt(Math.max(0, rt.hp))}/${fmt(mx)} · 처치 ${fmt(g.s.kills?.[m.id] || 0)}`;
+  if (!d._l) { d.innerHTML = '<div class="l1"></div><div class="l2"></div>'; d._l = [d.firstChild, d.lastChild]; }
+  d._l[0].textContent = `⚔ 함께 사냥: ${m.icon} ${m.name}`;
+  d._l[1].textContent = l2;
   this.noWrapSeg(d);
 };
 const _sig2 = U.sigX;
