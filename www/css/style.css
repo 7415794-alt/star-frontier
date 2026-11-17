@@ -213,3 +213,58 @@ details.card > summary { cursor: pointer; }
 .top .brand { flex: 1 1 0; min-width: 0; }
 /* 강화창: 내용이 늘어도 창 위치가 위아래로 움직이지 않게 위쪽 기준으로 */
 #sfWin { align-items: flex-start; padding-top: max(16px, 6vh); }
+
+/* 잠재능력 */
+.potb { display: inline-block; font-size: 11px; font-weight: 800; border: 1px solid; border-radius: 6px; padding: 0 5px; margin-left: 2px; }
+#sfWin .potcur { margin-top: 8px; border: 2px solid; border-radius: 10px; padding: 6px; font-size: 13px; background: rgba(0,0,0,.2); }
+#sfWin .potg { font-weight: 800; font-size: 15px; }
+#sfWin .potcands { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+#sfWin .potc { border: 2px solid; border-radius: 10px; padding: 5px; font-size: 11px; background: var(--card); display: flex; flex-direction: column; gap: 2px; animation: sfpop .3s ease-out; }
+#sfWin .potc .potg { font-size: 12px; }
+#sfWin .potc.up { box-shadow: 0 0 10px rgba(253, 224, 71, .6); }
+#sfWin .potc.pick { outline: 2px solid var(--good); }
+#sfWin .potc .btn { margin-top: auto; }
+
+/* ====================== 🎨 모험 테마 (방치형 RPG 느낌 · 설정에서 '별밤'으로 되돌릴 수 있음) ====================== */
+body.th-adv {
+  --bg: #17203d; --bg2: #24315c; --card: #2b3a68; --line: #4f64a6; --txt: #f5f7ff; --mut: #b9c4ea;
+  --acc: #ffb547; --gold: #ffd84d;
+  background: linear-gradient(180deg, #1d2a52 0%, #141b33 100%);
+}
+body.th-adv .top { background: linear-gradient(180deg, #3d52944d, #2a3870), linear-gradient(180deg, #34488a, #26346a); border-bottom: 2px solid #e0a63a; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+body.th-adv .brand { color: #ffe9a8; text-shadow: 0 2px 0 #7a4a00; }
+body.th-adv .spd { background: linear-gradient(180deg, #ffd25a, #ff9a1f); color: #3a1d00; border: 1px solid #ffe7a3; border-radius: 999px; box-shadow: 0 2px 0 #a85400; }
+body.th-adv .pw { color: #ffe066; text-shadow: 0 1px 0 #6b3d00; }
+/* 위쪽 장면: 하늘 + 땅 */
+body.th-adv .act {
+  background: linear-gradient(to top, #3a7d36 0, #3a7d36 8px, #5cb052 8px, #5cb052 12px, transparent 12px), linear-gradient(180deg, #2a5aa3 0%, #4f8fd0 100%);
+  border-bottom: 2px solid #e0a63a; text-shadow: 0 1px 2px rgba(0,0,0,.85);
+}
+body.th-adv .act .mut, body.th-adv .act .actinfo, body.th-adv .act .fighter .nm { color: #eaf2ff; }
+body.th-adv .act .bar { background: rgba(10, 16, 40, .75); border: 1px solid rgba(255,255,255,.25); }
+body.th-adv .act .vs { color: #ffe066; font-size: 18px; text-shadow: 0 2px 0 #6b3d00; }
+body.th-adv .act .fighter .ic, body.th-adv .act .skillact .ic { filter: drop-shadow(0 3px 2px rgba(0,0,0,.45)); }
+/* 카드 · 줄 */
+body.th-adv .card, body.th-adv .row, body.th-adv .slot {
+  background: linear-gradient(180deg, #31447c, #283766); border: 1px solid #5468aa; border-radius: 14px;
+  box-shadow: 0 2px 0 rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.08);
+}
+body.th-adv .row.on { border-color: #ffb547; box-shadow: 0 0 0 2px #ffb547 inset; }
+body.th-adv .h { border-left: 4px solid #ffb547; padding-left: 8px; color: #ffe9a8; }
+/* 버튼 */
+body.th-adv .btn { background: linear-gradient(180deg, #5c72bd, #3f519c); border: 1px solid #8a9ee0; border-radius: 10px; box-shadow: 0 2px 0 #1c2652; font-weight: 700; }
+body.th-adv .btn.pri { background: linear-gradient(180deg, #ffc451, #ff8a1f); border-color: #ffe3a0; color: #3a1d00; text-shadow: none; box-shadow: 0 3px 0 #b05800; }
+body.th-adv .btn:not(:disabled):active { transform: translateY(2px); box-shadow: none; }
+body.th-adv .seg button { background: linear-gradient(180deg, #31447c, #283766); border: 1px solid #5468aa; border-radius: 10px; font-weight: 700; }
+body.th-adv .seg button.on { background: linear-gradient(180deg, #ffc451, #ff8a1f); border-color: #ffe3a0; color: #3a1d00; box-shadow: 0 2px 0 #b05800; }
+body.th-adv .lvbar div, body.th-adv .bar.tm > div { background: linear-gradient(90deg, #ffd25a, #ff9a1f); }
+/* 아래 메뉴 */
+body.th-adv .tabs { background: linear-gradient(180deg, #2c3b75, #1c2550); border-top: 2px solid #e0a63a; }
+body.th-adv .tabs button { opacity: .7; border-radius: 12px 12px 0 0; }
+body.th-adv .tabs button.on { opacity: 1; background: linear-gradient(180deg, #ffc45133, #ff8a1f22); }
+body.th-adv .tabs button.on span { color: #ffd25a; font-weight: 800; }
+body.th-adv .tabs button.on { transform: translateY(-2px); }
+/* 창 */
+body.th-adv #modalBox, body.th-adv #sfWin .sfbox { background: linear-gradient(180deg, #2f4178, #222e5a); border: 2px solid #e0a63a; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,.6); }
+body.th-adv #sfWin .sfmain { background: linear-gradient(180deg, #3b5395, #2b3a68); border: 1px solid #5468aa; }
+body.th-adv .toast { border-radius: 12px; }

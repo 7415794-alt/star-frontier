@@ -2487,3 +2487,333 @@ U.render = function (force = false) {
   const el = [...p.querySelectorAll('.card, .row, details, summary, .h, .slot')].find((e) => anchorKey(e) === anc.k);
   if (el) p.scrollTop += el.getBoundingClientRect().top - pt - anc.off;
 };
+
+// ====================== 🔮 잠재능력: 부위마다 21단계 · 큐브 1개 = 후보 1개 · 한 번에 3개 후보 중 고르기 · 자동 돌리기 ======================
+// 잠재능력도 별처럼 '부위'에 붙음 → 장비를 바꿔 껴도 그대로
+import { refDef as refDefP } from './data.js';
+ITEMS.cube = { name: '잠재 큐브', icon: '🧊', kind: 'cube', value: 50 };
+export const POT_GRADES = [
+  ['평범', '#b5b9c4'], ['견고', '#9ca3af'], ['정교', '#86efac'], ['희귀', '#4ade80'], ['영롱', '#38bdf8'], ['고귀', '#60a5fa'], ['에픽', '#a78bfa'],
+  ['영웅', '#c084fc'], ['전설', '#fb923c'], ['신화', '#facc15'], ['고대', '#22d3ee'], ['태초', '#2dd4bf'], ['성운', '#f472b6'], ['항성', '#fb7185'],
+  ['은하', '#818cf8'], ['성좌', '#e879f9'], ['차원', '#f43f5e'], ['초월', '#fde047'], ['천상', '#a5f3fc'], ['절대', '#fca5a5'], ['무한', '#fff7ae'],
+];
+const POT_MAX = POT_GRADES.length; // 21
+const potName = (g) => POT_GRADES[g - 1]?.[0] || '없음';
+const potCol = (g) => POT_GRADES[g - 1]?.[1] || 'var(--mut)';
+// 다음 단계로 오를 확률 (후보 1개마다) · 단계가 높을수록 낮아짐
+export const potUp = (g) => (g >= POT_MAX ? 0 : 0.12 * 0.82 ** (g - 1));
+// 한 줄 수치: % 는 단계에 따라 (21단계 한 줄 약 12%), 고정 수치는 돌린 때의 전투 레벨 기준
+const potPct = (g) => 0.004 + 0.0035 * g ** 1.15;
+const POT_KINDS = [
+  // [키, 뽑힐 비중, 종류]
+  ['atkPct', 10, 'pct'], ['strPct', 10, 'pct'], ['defPct', 10, 'pct'], ['rngPct', 10, 'pct'], ['magPct', 10, 'pct'],
+  ['atkFlat', 6, 'flat'], ['strFlat', 6, 'flat'], ['defFlat', 6, 'flat'], ['rngFlat', 6, 'flat'], ['magFlat', 6, 'flat'],
+  ['ls', 4, 'ls'], ['drop', 4, 'drop'], ['bossDmg', 4, 'boss'],
+];
+const POT_W = POT_KINDS.reduce((a, k) => a + k[1], 0);
+function potLine(g, L) {
+  let x = Math.random() * POT_W, kd = POT_KINDS[0];
+  for (const k of POT_KINDS) { x -= k[1]; if (x < 0) { kd = k; break; } }
+  const [k, , t] = kd;
+  const r = 0.85 + Math.random() * 0.3; // 같은 단계 안에서도 조금씩 다름
+  let v;
+  if (t === 'pct') v = potPct(g) * r;
+  else if (t === 'flat') v = Math.max(1, Math.round(0.004 * refDefP(Math.max(10, L)) * (0.3 + 0.07 * g ** 1.1) * r * (k === 'defFlat' ? 1.5 : 1)));
+  else if (t === 'ls') v = potPct(g) * 0.12 * r;
+  else if (t === 'drop') v = potPct(g) * 1.5 * r;
+  else v = potPct(g) * 1.2 * r;
+  if (t !== 'flat') v = Math.round(v * 10000) / 10000;
+  return { k, v };
+}
+// 줄 3개: 첫 줄은 그 단계, 둘째 · 셋째 줄은 25% 확률로 그 단계 · 아니면 한 단계 아래
+function potRoll(g, L) {
+  return [g, ...[0, 1].map(() => (Math.random() < 0.25 || g === 1 ? g : g - 1))].map((gg) => potLine(gg, L));
+}
+const potLineTxt = (l) => {
+  const n = SPN_A[l.k] || l.k;
+  return /Flat$/.test(l.k) ? `${n} +${fmt(l.v)}` : `${n} +${(l.v * 100).toFixed(l.v < 0.01 ? 2 : 1)}%`;
+};
+P.potInit = function () {
+  this.s.pot ||= { sl: {}, auto: false, target: 5, slot: 'all', autoUp: true, keepBetter: true, tries: 0, ups: 0, cand: null, candSl: null };
+  const f = this.s.pot;
+  f.sl ||= {};
+  return f;
+};
+P.potOf = function (sl) { return this.s.pot?.sl?.[sl] || null; };
+P.potGrade = function (sl) { return this.potOf(sl)?.g || 0; };
+P.potBonus = function () {
+  const S = this.s.pot?.sl || {};
+  const key = JSON.stringify(S);
+  if (this._potB?.key === key) return this._potB.v;
+  const v = {};
+  for (const sl of Object.keys(S)) for (const l of S[sl].lines || []) v[l.k] = (v[l.k] || 0) + l.v;
+  this._potB = { key, v };
+  return v;
+};
+const _extraPot = P.extraSources;
+P.extraSources = function () { return [..._extraPot.call(this), this.potBonus()]; };
+// 후보 점수 (자동 선택용 · 가벼운 계산): 지금 전투 방식의 주 능력 · 방어 위주
+P.potScore = function (lines) {
+  const st = this.style(), L = this.combatLevel();
+  const main = st === 'melee' ? ['atk', 'str'] : st === 'ranged' ? ['rng'] : ['mag'];
+  const unitFlat = Math.max(1, 0.01 * refDefP(Math.max(10, L)));
+  let sc = 0;
+  for (const l of lines || []) {
+    const base = l.k.replace(/Pct$|Flat$/, '');
+    const w = main.includes(base) ? (main.length === 2 ? 0.6 : 1) : base === 'def' ? 0.7 : ['atk', 'str', 'rng', 'mag'].includes(base) ? 0.08 : l.k === 'ls' ? 2 : 0.15;
+    const val = /Flat$/.test(l.k) ? (l.v / unitFlat) * 0.01 : l.v;
+    sc += val * w;
+  }
+  return sc;
+};
+// 큐브 3개로 후보 3개 만들기 (큐브가 모자라면 있는 만큼)
+P.potRoll3 = function (sl) {
+  const f = this.potInit();
+  if (!SLOTS_SF[sl]) return null;
+  const n = Math.min(3, this.have('cube'));
+  if (n <= 0) return null;
+  this.give('cube', -n);
+  const cur = this.potOf(sl), g0 = cur?.g || 1, L = this.combatLevel();
+  const cand = [];
+  for (let i = 0; i < n; i++) {
+    const up = cur && Math.random() < potUp(g0);
+    const g = cur ? (up ? g0 + 1 : g0) : 1;
+    cand.push({ g, up: !!up, lines: potRoll(g, L) });
+  }
+  f.tries += n;
+  f.cand = cand; f.candSl = sl;
+  return cand;
+};
+// 후보 고르기 (i = -1 이면 지금 것 유지)
+P.potPick = function (i) {
+  const f = this.potInit(), c = f.cand?.[i], sl = f.candSl;
+  if (c && sl) {
+    const old = this.potGrade(sl);
+    f.sl = { ...f.sl, [sl]: { g: c.g, lines: c.lines } };
+    if (c.g > old && old) { f.ups++; this.toast(`🔮 ${SLOTS_SF[sl].name} 잠재능력 등업! ${potName(old)} → ${potName(c.g)}`, 'pet'); if (c.g >= 12 && this.s.cele !== false) this.celebrate?.(`🔮 ${SLOTS_SF[sl].name} ${potName(c.g)} 등급!`); }
+    this.dirty();
+  }
+  f.cand = null; f.candSl = null;
+};
+// 자동으로 고를 후보: 등업 우선 (설정) → 아니면 지금보다 좋은 것 (설정) → 아니면 유지
+P.potAutoChoice = function () {
+  const f = this.potInit(), C = f.cand;
+  if (!C) return -1;
+  const cur = this.potOf(f.candSl);
+  if (!cur) { let b = 0; C.forEach((c, i) => { if (this.potScore(c.lines) > this.potScore(C[b].lines)) b = i; }); return b; }
+  let best = -1, bs = -Infinity;
+  if (f.autoUp) C.forEach((c, i) => { if (c.g > cur.g && this.potScore(c.lines) > bs) { bs = this.potScore(c.lines); best = i; } });
+  if (best >= 0) return best;
+  if (f.keepBetter) { bs = this.potScore(cur.lines); C.forEach((c, i) => { const v = this.potScore(c.lines); if (v > bs) { bs = v; best = i; } }); }
+  return best;
+};
+// 자동 돌리기: 목표 단계까지 (모든 부위면 단계가 가장 낮은 부위부터)
+P.potAutoPick = function () {
+  const f = this.potInit();
+  const list = f.slot === 'all' ? SLOT_IDS_SF : [f.slot];
+  let best = null;
+  for (const sl of list) { const g = this.potGrade(sl); if (g < f.target && (best == null || g < this.potGrade(best))) best = sl; }
+  return best;
+};
+P.potAutoStop = function (why, kind = 'info') { const f = this.potInit(); f.auto = false; this._potT = 0; f.stop = why; this.toast(`🔮 자동 큐브 멈춤 · ${why}`, kind); };
+P.potAutoStart = function () {
+  const f = this.potInit();
+  if (!this.potAutoPick()) { this.toast(`이미 목표 ${potName(f.target)} 등급입니다`, 'bad'); return false; }
+  if (this.have('cube') <= 0) { this.toast('🧊 큐브가 없습니다 (몬스터 전리품 · 쿠폰)', 'bad'); return false; }
+  f.cand = null; f.auto = true; f.stop = null; this._potT = 0;
+  return true;
+};
+P.potAutoTick = function (dt) {
+  const f = this.s.pot;
+  if (!f?.auto) return;
+  this._potT = (this._potT || 0) + dt;
+  let n = 0;
+  while (this._potT >= 0.3 && n < 4) {
+    this._potT -= 0.3; n++;
+    const sl = this.potAutoPick();
+    if (!sl) return this.potAutoStop(`목표 ${potName(f.target)} 달성!`, 'pet');
+    if (this.have('cube') <= 0) return this.potAutoStop('큐브를 다 썼습니다', 'bad');
+    this.potRoll3(sl);
+    const i = this.potAutoChoice();
+    const c = f.cand?.[i];
+    f.last = { sl, cand: f.cand, pick: i, at: performance.now() };
+    if (i >= 0) this.potPick(i); else { f.cand = null; f.candSl = null; }
+    if (c && !this.quiet) f.lastPick = { sl, g: c.g, lines: c.lines };
+  }
+};
+const _updPot = P.update;
+P.update = function (dt) { _updPot.call(this, dt); this.potAutoTick(dt); };
+
+// ---- 큐브 드롭: 모든 몬스터 (보스는 더 많이) ----
+const _killPot = P.kill;
+P.kill = function (m) {
+  const r = _killPot.call(this, m);
+  const mul = 1 + (this.sp('drop') || 0);
+  const p = (m.boss ? 0.3 : 0.04) * mul;
+  if (Math.random() < p) {
+    const n = m.boss ? 1 + Math.floor(Math.random() * 3) : 1;
+    this.gain('cube', n);
+  }
+  return r;
+};
+// ---- 쿠폰으로 큐브 ----
+COUPONS.CUBE = { cube: 300, text: '🧊 잠재 큐브 300개' };
+COUPONS.큐브 = { cube: 1000, text: '🧊 잠재 큐브 1,000개' };
+COUPONS.STAR2026.cube = 100; COUPONS.STAR2026.text += ' · 🧊 큐브 100개';
+const _redeemPot = P.redeemCoupon;
+P.redeemCoupon = function (code) {
+  const r = _redeemPot.call(this, code);
+  if (r.ok) {
+    const key = Object.keys(COUPONS).find((x) => cpNorm(x) === cpNorm(code));
+    const c = COUPONS[key];
+    if (c?.cube) this.give('cube', c.cube);
+  }
+  return r;
+};
+
+// ---- 화면: 마을 '🔮 잠재' 탭 + 큐브 창 ----
+const potBadge = (g) => (g ? `<span class="potb" style="color:${potCol(g)};border-color:${potCol(g)}">🔮${potName(g)}</span>` : '');
+P.potBadgeHtml = function (sl) { return potBadge(this.potGrade(sl)); };
+function townPot(ui, p, g, s) {
+  const f = g.potInit();
+  const b = g.potBonus();
+  const bt = Object.entries(b).map(([k, v]) => potLineTxt({ k, v })).join(', ');
+  p.appendChild(h('div', 'card', `<b>🔮 잠재능력</b> <span class="mut">🧊 큐브 ${fmt(g.have('cube'))}개 · 돌린 횟수 ${fmt(f.tries)} · 등업 ${fmt(f.ups)}</span>
+    <div class="mut">부위마다 <b>${POT_MAX}단계</b> (${potName(1)} → ${potName(POT_MAX)}) · 큐브 1개 = 후보 1개 · <b>한 번에 3개</b>를 돌려서 마음에 드는 것을 고릅니다 · 잠재능력은 부위에 붙어서 장비를 바꿔도 그대로</div>
+    <div class="mut">🧊 큐브: 모든 몬스터 전리품 (보스는 더 자주 · 여러 개) · 쿠폰</div>
+    <div style="margin-top:6px">잠재능력 합계: <span class="sp">${bt || '없음'}</span></div>`));
+  // 자동
+  const a = h('div', 'card', `<b>🤖 자동 큐브</b> ${f.auto ? '<span class="sp">진행 중…</span>' : ''}
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">
+      <label class="tg">목표 <select class="ptt">${POT_GRADES.map((x, i) => `<option value="${i + 1}"${f.target === i + 1 ? ' selected' : ''}>${i + 1}단계 ${x[0]}</option>`).join('')}</select></label>
+      <label class="tg">부위 <select class="pts"><option value="all"${f.slot === 'all' ? ' selected' : ''}>모든 부위 (낮은 것부터)</option>${SLOT_IDS_SF.map((sl) => `<option value="${sl}"${f.slot === sl ? ' selected' : ''}>${SLOTS_SF[sl].icon} ${SLOTS_SF[sl].name}</option>`).join('')}</select></label>
+      <label class="tg"><input type="checkbox" class="ptu"${f.autoUp ? ' checked' : ''}> ⬆ 등업이 나오면 자동으로 선택</label>
+      <label class="tg"><input type="checkbox" class="ptk"${f.keepBetter ? ' checked' : ''}> ✨ 지금보다 좋은 옵션이면 자동으로 선택</label>
+    </div>
+    <div style="margin-top:6px"><button class="btn ${f.auto ? '' : 'pri'} pta">${f.auto ? '🤖 자동 큐브 창 열기' : '▶ 자동 큐브 시작'}</button></div>
+    <div class="mut">한 번에 큐브 3개 · 목표 단계에 닿거나 큐브를 다 쓰면 멈춤 · 좋은 옵션은 지금 전투 방식(${STYLES[g.style()].name}) 기준</div>`);
+  a.querySelector('.ptt').addEventListener('change', (e) => { f.target = +e.target.value; });
+  a.querySelector('.pts').addEventListener('change', (e) => { f.slot = e.target.value; });
+  a.querySelector('.ptu').addEventListener('change', (e) => { f.autoUp = e.target.checked; });
+  a.querySelector('.ptk').addEventListener('change', (e) => { f.keepBetter = e.target.checked; });
+  a.querySelector('.pta').addEventListener('click', () => { if (f.auto || g.potAutoStart()) ui.potOpen(null, true); ui._rT = 0; });
+  p.appendChild(a);
+  // 부위 목록
+  for (const sl of SLOT_IDS_SF) {
+    const cur = g.potOf(sl), it = ITEMS[s.equip[sl]];
+    const row = h('div', 'row', `<div class="ic">${SLOTS_SF[sl].icon}</div><div class="info"><div class="nm">${SLOTS_SF[sl].name} ${cur ? potBadge(cur.g) : '<span class="mut">잠재능력 없음</span>'} <span class="mut">${it ? it.name : ''}</span></div>
+      <div class="sp">${cur ? cur.lines.map(potLineTxt).join(' · ') : ''}</div><div class="mut">${cur && cur.g < POT_MAX ? `다음 단계 확률 ${pct(potUp(cur.g), 2)} (후보 1개마다)` : cur ? '최고 단계!' : '큐브를 쓰면 1단계부터 시작'}</div></div>
+      <button class="btn sm pri">🧊 큐브</button>`);
+    row.querySelector('button').addEventListener('click', () => ui.potOpen(sl, !!f.auto));
+    p.appendChild(row);
+  }
+  const rows = [];
+  for (let k = 1; k <= POT_MAX; k++) rows.push(`<span style="color:${potCol(k)}">${k}단계 ${potName(k)}</span> · 한 줄 약 ${(potPct(k) * 100).toFixed(1)}%${k < POT_MAX ? ` · 등업 ${pct(potUp(k), 2)}` : ''}`);
+  p.appendChild(h('details', 'card mut', `<summary>📋 단계 · 확률표</summary>${rows.join('<br>')}`));
+}
+U.townExtra = [...U.townExtra, ['pot', '🔮 잠재']];
+U.townFns.pot = townPot;
+const _sigPot = U.sigX;
+U.sigX = function () { const f = this.g.s.pot; const on = this.tab === 'town' && this.town === 'pot'; return [..._sigPot.call(this), f ? JSON.stringify(Object.values(f.sl).map((x) => x.g)) : '', f?.auto, on ? this.g.have('cube') : 0, f?.target, f?.slot]; };
+
+// 큐브 창 (강화 창처럼 따로 뜸): 후보 3개 중 고르기 · 자동이면 진행 상황
+U.potOpen = function (sl, auto = false) {
+  const ui = this, g = this.g, f = g.potInit();
+  document.getElementById('sfWin')?.remove();
+  clearInterval(this._sfWinT);
+  const st = { sl: sl || g.potAutoPick() || 'weapon', auto, key: '', tries0: f.tries, ups0: f.ups, cubes0: g.have('cube') };
+  if (!auto && f.cand && f.candSl) st.sl = f.candSl; // 고르다 만 후보가 있으면 이어서
+  const wrap = h('div', '', '<div class="sfbox potbox"></div>');
+  wrap.id = 'sfWin';
+  document.body.appendChild(wrap);
+  const box = wrap.querySelector('.sfbox');
+  const close = () => { clearInterval(ui._sfWinT); wrap.remove(); ui._rT = 0; ui.render(true); };
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  const linesHtml = (lines) => lines.map((l) => `<div>${potLineTxt(l)}</div>`).join('');
+  const draw = () => {
+    const A = st.auto;
+    if (A && f.auto) st.sl = g.potAutoPick() || st.sl;
+    const sl2 = st.sl, cur = g.potOf(sl2), it = ITEMS[g.s.equip[sl2]];
+    const C = !A && f.cand && f.candSl === sl2 ? f.cand : null;
+    const L = A ? f.last : null;
+    const key = JSON.stringify([A, f.auto, sl2, cur, g.have('cube'), !!C, f.tries, f.stop, f.autoUp, f.keepBetter]);
+    if (key === st.key) return;
+    st.key = key;
+    const slotSel = A ? '' : `<select class="sfsl">${SLOT_IDS_SF.map((x) => `<option value="${x}"${x === sl2 ? ' selected' : ''}>${SLOTS_SF[x].icon} ${SLOTS_SF[x].name} · ${g.potGrade(x) ? potName(g.potGrade(x)) : '없음'}</option>`).join('')}</select>`;
+    const curHtml = `<div class="potcur" style="border-color:${potCol(cur?.g)}"><div class="potg" style="color:${potCol(cur?.g)}">${cur ? `${cur.g}단계 ${potName(cur.g)}` : '잠재능력 없음'}</div>${cur ? linesHtml(cur.lines) : '<div class="mut">큐브를 쓰면 1단계부터 시작</div>'}</div>`;
+    let candHtml = '';
+    const showC = C || (L && L.sl === sl2 && performance.now() - L.at < 2000 ? L.cand : null);
+    if (showC) {
+      candHtml = `<div class="potcands">${showC.map((c, i) => `<div class="potc${c.up ? ' up' : ''}${A && L?.pick === i ? ' pick' : ''}" data-i="${i}" style="border-color:${potCol(c.g)}">
+        <div class="potg" style="color:${potCol(c.g)}">${c.up ? '⬆ 등업! ' : ''}${potName(c.g)}</div>${linesHtml(c.lines)}${C ? '<button class="btn sm pri pk">이걸로</button>' : ''}</div>`).join('')}</div>`;
+    }
+    const sess = `이번에 큐브 ${fmt(f.tries - st.tries0)}개 · 등업 ${fmt(f.ups - st.ups0)}번`;
+    const g0 = cur?.g || 0;
+    box.innerHTML = `<div class="sfhd"><b>${A ? '🤖 자동 큐브' : '🔮 잠재능력'}</b><button class="btn sm sfx">✕ 닫기</button></div>
+      ${slotSel}
+      <div class="sfmain"><div class="sfic">${SLOTS_SF[sl2].icon}</div><div class="sfnm">${SLOTS_SF[sl2].name} <span class="mut">${it ? it.name : '비어 있음'}</span></div>${curHtml}</div>
+      ${candHtml}
+      <div class="mut" style="text-align:center">${g0 && g0 < POT_MAX ? `다음 단계 ${potName(g0 + 1)} 확률 ${pct(potUp(g0), 2)} (후보마다) · ` : ''}🧊 큐브 ${fmt(g.have('cube'))}개</div>
+      ${A ? `<div class="sfgrid">${SLOT_IDS_SF.map((x) => `<div class="${x === sl2 ? 'on' : ''}">${SLOTS_SF[x].icon}<b style="color:${potCol(g.potGrade(x))}">${g.potGrade(x) || '-'}</b></div>`).join('')}</div>
+        <div class="mut" style="text-align:center">목표 ${f.target}단계 ${potName(f.target)} · ${f.slot === 'all' ? '모든 부위 (낮은 것부터)' : SLOTS_SF[f.slot].name}${f.stop && !f.auto ? ` · <b>멈춤: ${f.stop}</b>` : ''}</div>` : ''}
+      <div class="mut" style="text-align:center">${sess}</div>
+      <label class="tg" style="justify-content:center"><input type="checkbox" class="ptu"${f.autoUp ? ' checked' : ''}> ⬆ 등업은 자동 선택</label>
+      <div class="sfbtns">${A
+        ? `<button class="btn ${f.auto ? '' : 'pri'} big pta">${f.auto ? '■ 자동 큐브 멈춤' : '▶ 자동 큐브 다시 시작'}</button>`
+        : C ? '<button class="btn big pkeep">지금 것 유지</button>'
+          : `<button class="btn pri big pgo"${g.have('cube') <= 0 || f.auto ? ' disabled' : ''}>🧊 큐브 ${Math.min(3, g.have('cube')) || 3}개 돌리기</button>`}</div>
+      ${f.auto && !A ? '<div class="mut" style="text-align:center">자동 큐브 중에는 직접 돌릴 수 없습니다</div>' : ''}`;
+    box.querySelector('.sfx').addEventListener('click', close);
+    box.querySelector('.sfsl')?.addEventListener('change', (e) => { if (f.cand) g.potPick(-1); st.sl = e.target.value; st.key = ''; draw(); });
+    box.querySelector('.ptu').addEventListener('change', (e) => { f.autoUp = e.target.checked; st.key = ''; draw(); });
+    box.querySelector('.pgo')?.addEventListener('click', () => {
+      const c = g.potRoll3(st.sl);
+      if (!c) { g.toast('🧊 큐브가 없습니다', 'bad'); return; }
+      // 처음 잠재능력이면 가장 좋은 것 / 등업 자동 선택이 켜져 있으면 등업 후보를 바로 고름
+      const cur2 = g.potOf(st.sl);
+      if (!cur2) { g.potPick(g.potAutoChoice()); }
+      else if (f.autoUp && c.some((x) => x.g > cur2.g)) {
+        let bi = -1, bs = -Infinity;
+        c.forEach((x, i) => { if (x.g > cur2.g && g.potScore(x.lines) > bs) { bs = g.potScore(x.lines); bi = i; } });
+        g.potPick(bi);
+      }
+      st.key = ''; draw();
+    });
+    box.querySelectorAll('.potc .pk').forEach((b) => b.addEventListener('click', () => { g.potPick(+b.closest('.potc').dataset.i); st.key = ''; draw(); }));
+    box.querySelector('.pkeep')?.addEventListener('click', () => { g.potPick(-1); st.key = ''; draw(); });
+    box.querySelector('.pta')?.addEventListener('click', () => { if (f.auto) g.potAutoStop('직접 멈춤'); else g.potAutoStart(); st.key = ''; draw(); });
+    ui.noWrapSeg?.(box);
+  };
+  draw();
+  this._sfWinT = setInterval(() => { if (!document.getElementById('sfWin')) return clearInterval(ui._sfWinT); draw(); }, 150);
+};
+
+// ---- 몬스터 밸런스: 잠재능력이 붙는 만큼 높은 레벨 몬스터를 조금 더 강하게 (30레벨부터 서서히 · 200레벨 이상 체력 +25% · 피해 +20%) ----
+for (const m of Object.values(MONSTER)) {
+  if (m._potBal) continue;
+  const k = Math.max(0, Math.min(1, (m.lvl - 30) / 170));
+  m.hp = Math.round(m.hp * (1 + 0.25 * k));
+  m.str = Math.round(m.str * (1 + 0.2 * k));
+  m.atk = Math.round(m.atk * (1 + 0.1 * k));
+  m.def = Math.round(m.def * (1 + 0.1 * k));
+  m._potBal = true;
+}
+
+// ====================== 🎨 화면 테마: 모험 (기본) · 별밤 (이전) ======================
+const applyTheme = (s) => {
+  const th = s?.theme || 'adv';
+  if (document.body.dataset.th === th) return;
+  document.body.dataset.th = th;
+  document.body.classList.toggle('th-adv', th === 'adv');
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', th === 'adv' ? '#24315c' : '#14182b');
+};
+const _frameTh = U.frame;
+U.frame = function () { applyTheme(this.g.s); return _frameTh.call(this); };
+const _tabMoreTh = U.tabMore;
+U.tabMore = function (p) {
+  const s = this.g.s;
+  const c = h('div', 'card', `<b>🎨 화면 테마</b> <select class="thsel"><option value="adv"${(s.theme || 'adv') === 'adv' ? ' selected' : ''}>⚔ 모험 (새 테마)</option><option value="night"${s.theme === 'night' ? ' selected' : ''}>🌙 별밤 (이전 테마)</option></select>`);
+  c.querySelector('.thsel').addEventListener('change', (e) => { s.theme = e.target.value; applyTheme(s); });
+  p.appendChild(c);
+  return _tabMoreTh.call(this, p);
+};

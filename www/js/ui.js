@@ -413,7 +413,7 @@ export class UI {
     for (const sl of slots) {
       const it = ITEMS[s.equip[sl]];
       const star = g.sfStars ? g.sfStars(sl) : 0;
-      const c = h('div', 'slot' + (it ? '' : ' empty'), `<div class="t">${SLOTS[sl].icon} ${SLOTS[sl].name}${star ? ` <span class="star">★${star}</span>` : ''}</div>
+      const c = h('div', 'slot' + (it ? '' : ' empty'), `<div class="t">${SLOTS[sl].icon} ${SLOTS[sl].name}${star ? ` <span class="star">★${star}</span>` : ''}${g.potBadgeHtml ? g.potBadgeHtml(sl) : ''}</div>
         <div class="n" style="color:${it ? icol(it) : 'var(--mut)'}">${it ? it.icon + ' ' + it.name : '비어 있음'}</div>${it ? `<div class="t">${stText(it.st)}</div>` : ''}`);
       if (it) { c.style.cursor = 'pointer'; c.addEventListener('click', () => g.unequip(sl)); }
       grid.appendChild(c);
