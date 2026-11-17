@@ -2817,3 +2817,46 @@ U.tabMore = function (p) {
   p.appendChild(c);
   return _tabMoreTh.call(this, p);
 };
+
+// ====================== 📈 경험치 표시: 위쪽 장면 맨 아래에 지금 오르는 스킬의 경험치 막대 ======================
+import { XP_TABLE as XP_T, MAX_LVL as MAX_L } from './data.js';
+const xpInfo = (g, id) => {
+  const L = g.lvl(id), xp = g.s.xp[id] || 0;
+  const p = L >= MAX_L ? 1 : (xp - XP_T[L]) / (XP_T[L + 1] - XP_T[L]);
+  return { L, p: Math.max(0, Math.min(1, p)) };
+};
+U.xpStripIds = function () {
+  const g = this.g, s = g.s, ids = [];
+  const A = s.activity;
+  if (A?.type === 'skill') ids.push(A.skill);
+  else if (A?.type === 'bury') ids.push('div');
+  const fighting = s.fight || A?.type === 'combat' || (s.hunt && MONSTER[s.hunt]) || (g.bgHunting && g.bgHunting());
+  if (fighting) {
+    const st = g.style();
+    if (st === 'ranged') ids.push('rng'); else if (st === 'magic') ids.push('mag'); else ids.push('atk', 'str');
+    ids.push('def');
+  }
+  return [...new Set(ids)].filter((k) => SKILL[k]).slice(0, 4);
+};
+const _frameXp = U.frame;
+U.frame = function () {
+  _frameXp.call(this);
+  const act = document.getElementById('act');
+  if (!act) return;
+  const ids = this.xpStripIds();
+  let el = act.querySelector('.xpstrip');
+  const key = ids.join(',');
+  if (!ids.length) { el?.remove(); return; }
+  if (!el || el._k !== key) {
+    el?.remove();
+    el = h('div', 'xpstrip', ids.map((k) => `<div class="xpi" data-k="${k}"><span class="xpn">${SKILL[k].icon} ${SKILL[k].name} <b>Lv <i></i></b></span><div class="xpb"><div></div></div><span class="xpp"></span></div>`).join(''));
+    el._k = key;
+    act.appendChild(el);
+  }
+  for (const it of el.children) {
+    const { L, p } = xpInfo(this.g, it.dataset.k);
+    it.querySelector('i').textContent = L;
+    it.querySelector('.xpb > div').style.width = (p * 100).toFixed(1) + '%';
+    it.querySelector('.xpp').textContent = L >= MAX_L ? 'MAX' : (p * 100).toFixed(1) + '%';
+  }
+};

@@ -268,3 +268,14 @@ body.th-adv .tabs button.on { transform: translateY(-2px); }
 body.th-adv #modalBox, body.th-adv #sfWin .sfbox { background: linear-gradient(180deg, #2f4178, #222e5a); border: 2px solid #e0a63a; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,.6); }
 body.th-adv #sfWin .sfmain { background: linear-gradient(180deg, #3b5395, #2b3a68); border: 1px solid #5468aa; }
 body.th-adv .toast { border-radius: 12px; }
+
+/* 경험치 막대 (위쪽 장면 맨 아래) */
+.xpstrip { display: flex; gap: 6px; margin-top: 6px; font-size: 10px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.xpstrip .xpi { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr auto; gap: 1px 4px; align-items: center; }
+.xpstrip .xpn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mut); }
+.xpstrip .xpn i { font-style: normal; }
+.xpstrip .xpp { color: #ffe066; font-weight: 700; }
+.xpstrip .xpb { grid-column: 1 / 3; height: 6px; background: rgba(10, 16, 40, .75); border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,.2); }
+.xpstrip .xpb > div { height: 100%; background: linear-gradient(90deg, #7cf0a0, #3ec46d); transition: width .3s; }
+body.th-adv .xpstrip .xpb > div { background: linear-gradient(90deg, #ffe066, #ffb547); }
+body.th-adv .xpstrip .xpn { color: #eaf2ff; }
