@@ -207,3 +207,9 @@ details.card > summary { cursor: pointer; }
 #act .skillact .grow { min-width: 0; }
 #act .bgh .l1, #act .bgh .l2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #act .bgh:empty { height: 0; margin: 0; }
+/* 상단 바: 숫자 폭 고정 · 골드가 잘리지 않게 (이름 쪽이 먼저 줄어듦) */
+.top { font-variant-numeric: tabular-nums; }
+.top .res { flex: 0 0 auto; overflow: visible; }
+.top .brand { flex: 1 1 0; min-width: 0; }
+/* 강화창: 내용이 늘어도 창 위치가 위아래로 움직이지 않게 위쪽 기준으로 */
+#sfWin { align-items: flex-start; padding-top: max(16px, 6vh); }
