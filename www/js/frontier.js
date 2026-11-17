@@ -1523,3 +1523,225 @@ P.townInit = function () {
   for (const [id, n] of Object.entries(s.museumLoot || {})) if (/^bone\d+$/.test(id)) { this.give(id, n); delete s.museumLoot[id]; }
   s.muBoneV = 1;
 };
+
+// ====================== 🗼 별의 탑: 층마다 강해지는 적 · 처음 깬 층마다 고정 능력치 영구 보상 ======================
+import { refDef as refDef_T, SPECIAL_NAMES as SPN_T, FLAT_SP as FSP_T } from './data.js';
+const TW_TIME = 60; // 한 층 제한 시간 (초)
+const TW_STAT = ['atk', 'str', 'def', 'rng', 'mag'];
+const TW_MON = [['🦇', '탑의 박쥐'], ['💀', '탑지기 해골'], ['🧿', '떠도는 눈'], ['🗿', '돌 파수꾼'], ['👻', '별빛 망령'], ['🦂', '수정 전갈'], ['🧙', '타락한 마법사'], ['🐺', '그림자 늑대'], ['🤖', '고대 자동인형']];
+const TW_BOSS = [['🐉', '탑의 용'], ['👹', '별 먹는 귀신'], ['🦅', '폭풍의 군주'], ['🧛', '밤의 군주'], ['🌋', '용암 거인']];
+const twLevel = (F) => 2 + 2 * F; // 1층 Lv 4 · 50층 Lv 102 · 100층 Lv 202
+const twBossF = (F) => F % 10 === 0;
+// 층 보상: 공격 → 힘 → 방어 → 원거리 → 마법 순서로 고정 수치 (방어는 1.5배 · 보스 층은 3배)
+const twReward = (F) => { const k = TW_STAT[(F - 1) % 5], L = twLevel(F); return { k: k + 'Flat', v: Math.max(1, Math.round(0.01 * refDef_T(L) * (k === 'def' ? 1.5 : 1) * (twBossF(F) ? 3 : 1))) }; };
+const twMonHp = (L) => (L <= 100 ? 15 + 0.0516 * L ** 2.45 : (15 + 0.0516 * 100 ** 2.45) * (L / 100) ** 2);
+export function twMonster(F) {
+  const L = twLevel(F), boss = twBossF(F), style = ROT[F % 3], b = boss ? 1.25 : 1.1;
+  const defMul = { melee: 1, ranged: 1, magic: 1 };
+  defMul[WEAK[style]] = 0.5;
+  defMul[style] = 1.4;
+  const [icon, name] = boss ? TW_BOSS[(F / 10 - 1) % TW_BOSS.length] : TW_MON[F % TW_MON.length];
+  return {
+    id: 'tw' + F, name, icon, lvl: L, style, boss, z: -1, weak: WEAK[style], defMul, interval: boss ? 3.0 : 2.6,
+    hp: Math.round(twMonHp(L) * (boss ? 6 : 2.5)),
+    ...monAtkStr(L, b), def: Math.round((1 + 0.176 * L ** 1.45) * b),
+  };
+}
+const twSum = (best) => { const o = {}; for (let F = 1; F <= best; F++) { const r = twReward(F); o[r.k] = (o[r.k] || 0) + r.v; } return o; };
+P.towerBonus = function () {
+  const best = this.s.tw?.best || 0;
+  if (this._twB?.best !== best) this._twB = { best, v: twSum(best) };
+  return this._twB.v;
+};
+const _extraTW = P.extraSources;
+P.extraSources = function () { return [..._extraTW.call(this), this.towerBonus()]; };
+P.twInit = function () { this.s.tw ||= { best: 0, runs: 0, auto: true }; return this.s.tw; };
+P.startTower = function (F) {
+  const w = this.twInit();
+  F = Math.max(1, Math.min(F || w.best + 1, w.best + 1));
+  if (this.s.activity) this.stop();
+  this.newSess();
+  this.rt.fx = [];
+  this.s.fight = { kind: 'tw', F, start: F, time: TW_TIME, hp: twMonster(F).hp, cleared: 0, coins: 0, got: {} };
+  this.s.activity = { type: 'tower', id: 'tw' };
+  const rt = this.rt;
+  rt.mon = null; rt.atkT = 0; rt.monT = 0; rt.dead = 0;
+  rt.hp = this.maxHp();
+  w.runs++;
+  return true;
+};
+P.twTick = function (dt) {
+  const f = this.s.fight, rt = this.rt;
+  if (f?.kind !== 'tw') { this.s.activity = null; return; }
+  const m = rt.twm?.id === 'tw' + f.F ? rt.twm : (rt.twm = twMonster(f.F));
+  const p = this.profile();
+  f.time -= dt;
+  rt.tickT += dt;
+  while (rt.tickT >= COMBAT_TICK) { rt.tickT -= COMBAT_TICK; if (p.sp.hpTick) rt.hp = Math.min(C.maxHp(p), rt.hp + p.sp.hpTick); }
+  rt.atkT += dt;
+  const iv = C.interval(p);
+  while (rt.atkT >= iv) {
+    rt.atkT -= iv;
+    {
+      const cap = C.cap(p, monDef(m, p.style));
+      const lo = C.minHit(p, cap);
+      const dmg = Math.floor((lo + Math.floor(Math.random() * (cap - lo + 1))) * C.dmgMult(p, m));
+      f.hp -= dmg;
+      this.fx('mon', String(dmg), 'hit');
+      const ls = C.ls(p);
+      if (ls > 0 && dmg > 0) rt.hp = Math.min(C.maxHp(p), rt.hp + Math.max(1, Math.ceil(dmg * ls)));
+      if (dmg > 0) this.combatXp(dmg * 0.5, p.style);
+    }
+    this.useEffects('atk');
+    if (f.hp <= 0) return this.twWin(f, m);
+  }
+  rt.monT += dt;
+  while (rt.monT >= m.interval) {
+    rt.monT -= m.interval;
+    const hits = Math.random() < C.mHit(p, m);
+    const d = hits ? C.mDmg(p, m, MON_ROLL[0] + Math.random() * (MON_ROLL[1] - MON_ROLL[0])) : 0;
+    rt.hp -= d;
+    this.fx('hero', !hits ? '빗나감' : d ? '-' + d : '0', d ? 'hurt' : 'miss');
+    this.autoEat();
+    if (rt.hp <= 0) { rt.hp = 1; return this.twEnd('쓰러짐'); }
+  }
+  if (f.time <= 0) this.twEnd('시간 초과');
+};
+P.twWin = function (f, m) {
+  const w = this.twInit(), F = f.F, L = m.lvl, t = tierFor(L);
+  const coins = Math.round((L * 6 + 20) * (1 + L / 60) * (m.boss ? 5 : 1));
+  this.s.coins += coins;
+  f.coins += coins;
+  f.cleared++;
+  const add = (id, n) => { if (n > 0) { const g = this.gain(id, n); f.got[g] = (f.got[g] || 0) + n; } };
+  if (F > w.best) {
+    const r = twReward(F);
+    w.best = F;
+    this.dirty();
+    this.toast(`🗼 ${F}층 첫 돌파! ${SPN_T[r.k]} +${fmt(r.v)} (영구)`, 'pet');
+    if (m.boss) {
+      const id = gearId(pick(Object.keys(GEAR)) + t, rollRarity(4));
+      add(id, 1);
+      this.s.log.gear[id] = (this.s.log.gear[id] || 0) + 1;
+      this.autoEquipCheck(id);
+      add(pick(['nest', 'gembag', 'chest']) + t, 2);
+      if (this.s.cele !== false) this.celebrate(`🗼 ${F}층 ${m.icon} ${m.name} 격파!`);
+    }
+  } else if (m.boss) add(pick(['nest', 'gembag', 'chest']) + t, 1);
+  // 다음 층으로 (자동 오르기) · 층 사이에 체력 30% 회복
+  if (w.auto !== false) {
+    f.F = F + 1;
+    f.time = TW_TIME;
+    f.hp = twMonster(f.F).hp;
+    this.rt.monT = 0;
+    this.rt.hp = Math.min(this.maxHp(), this.rt.hp + this.maxHp() * 0.3);
+  } else this.twEnd(`${F}층 돌파`);
+};
+P.twEnd = function (why) {
+  const f = this.s.fight;
+  this.s.fight = null;
+  this.s.activity = null;
+  this.rt.mon = null;
+  this.rt.twm = null;
+  if (f?.kind !== 'tw') return;
+  const w = this.twInit();
+  const got = Object.entries(f.got).map(([id, n]) => `${ITEMS[id].icon} ${ITEMS[id].name} x${n}`).join('<br>');
+  this.rt.popup = {
+    title: `🗼 별의 탑 — ${why}`,
+    html: `${f.start}층 → ${f.F}층 · 돌파 ${f.cleared}층 · 최고 기록 <b>${w.best}층</b><br>💰 +${fmt(f.coins)}${got ? '<br>' + got : ''}`,
+  };
+};
+const _endTW = P.endFight;
+P.endFight = function (why) {
+  if (this.s.fight?.kind === 'tw') return this.twEnd(why);
+  return _endTW.call(this, why);
+};
+const _updTW = P.update;
+P.update = function (dt) {
+  _updTW.call(this, dt);
+  if (this.s.activity?.type === 'tower') this.twTick(dt);
+};
+const _tiTW = P.townInit;
+P.townInit = function () {
+  const keep = this.s.activity?.type === 'tower' ? this.s.fight : null;
+  _tiTW.call(this);
+  if (keep && !this.s.fight) this.s.fight = keep;
+  this.twInit();
+};
+
+// ---- 화면 ----
+const _ahTW = U.actHtmlX;
+U.actHtmlX = function (A) {
+  if (A.type !== 'tower') return _ahTW.call(this, A);
+  const f = this.g.s.fight;
+  if (f?.kind !== 'tw') return '<div class="idle">탑 정리 중…</div>';
+  const m = twMonster(f.F), g = this.g;
+  return `<div class="duel">
+    <div class="fighter"><div class="ic heroIc">🧝</div><div class="nm">나 (${STYLES[g.style()].icon} ${STYLES[g.style()].name})</div><div class="bar hpP twh"><div></div><span></span></div></div>
+    <div class="vs twf">🗼${f.F}층</div>
+    <div class="fighter"><div class="ic monIc twi">${m.icon}</div><div class="nm twn">${m.boss ? '👑 ' : ''}${m.name} Lv ${m.lvl} · ${STYLES[m.style].icon}</div><div class="bar mon twm"><div></div><span></span></div></div>
+  </div><div class="floats"></div><div class="actinfo"><span class="info"></span><button class="btn sm" id="stopBtn">■ 그만</button></div>`;
+};
+const _fxTW = U.frameX;
+U.frameX = function (act, A) {
+  _fxTW.call(this, act, A);
+  if (A?.type !== 'tower') return;
+  const g = this.g, rt = g.rt, f = g.s.fight;
+  if (f?.kind !== 'tw') return;
+  const m = twMonster(f.F), mx = g.maxHp();
+  const ff = act.querySelector('.twf');
+  if (ff && act._twF !== f.F) {
+    act._twF = f.F;
+    ff.textContent = `🗼${f.F}층`;
+    act.querySelector('.twi').textContent = m.icon;
+    act.querySelector('.twn').textContent = `${m.boss ? '👑 ' : ''}${m.name} Lv ${m.lvl} · ${STYLES[m.style].icon}`;
+  }
+  const hb = act.querySelector('.twh'), mb = act.querySelector('.twm');
+  if (hb) { hb.firstElementChild.style.width = pct(Math.max(0, rt.hp) / mx); hb.lastElementChild.textContent = `${fmt(Math.max(0, rt.hp))} / ${fmt(mx)}`; }
+  if (mb) { mb.firstElementChild.style.width = pct(Math.max(0, f.hp) / m.hp); mb.lastElementChild.textContent = `${fmt(Math.max(0, f.hp))} / ${fmt(m.hp)}`; }
+  const i = act.querySelector('.info');
+  if (i) i.textContent = `남은 시간 ${Math.max(0, f.time).toFixed(0)}초 · 이번 도전 ${f.cleared}층 돌파 · 최고 ${g.s.tw.best}층`;
+  const fl = act.querySelector('.floats');
+  if (fl) {
+    act._fl ||= new Set();
+    for (const x of rt.fx) {
+      if (act._fl.has(x)) continue;
+      act._fl.add(x);
+      const e = h('div', 'fl ' + x.kind, x.text);
+      e.style.left = `calc(${x.at === 'hero' ? 20 : 80}% + ${x.x}px)`;
+      fl.appendChild(e);
+      setTimeout(() => e.remove(), 1000);
+    }
+    if (act._fl.size > 200) act._fl = new Set(rt.fx);
+  }
+};
+const spTextTW = (sp) => Object.entries(sp || {}).filter(([k]) => SPN_T[k] && sp[k]).map(([k, v]) => `${SPN_T[k]} +${FSP_T.has(k) ? fmt(v) : pct(v)}`).join(', ');
+function townTower(ui, p, g, s) {
+  const w = g.twInit(), F = w.best + 1, m = twMonster(F), v = g.vs(m);
+  const inTw = s.activity?.type === 'tower';
+  const killT = v.dps > 0 ? m.hp / v.dps : Infinity;
+  const tip = killT <= TW_TIME * 0.6 ? '✅ 여유' : killT <= TW_TIME ? '⚠ 빠듯함' : '❌ 시간 안에 못 잡음';
+  const r = twReward(F);
+  const c = h('div', 'card', `<b>🗼 별의 탑</b> <span class="mut">최고 기록 <b>${w.best}층</b> · 도전 ${fmt(w.runs)}회</span>
+    <div class="mut">층마다 강해지는 적과 ${TW_TIME}초 안에 싸웁니다 · 이기면 체력 30%를 회복하고 다음 층으로 · 처음 깬 층마다 <b>고정 능력치</b>가 영구로 오릅니다 (공격 → 힘 → 방어 → 원거리 → 마법 순서) · 10층마다 보스 (능력치 3배 + 영웅 이상 장비)</div>
+    <div style="margin-top:6px">다음: <b>${F}층</b> ${m.boss ? '👑 ' : ''}${m.icon} ${m.name} Lv ${m.lvl} · ${STYLES[m.style].icon} · 체력 ${fmt(m.hp)}</div>
+    <div class="mut">예상 처치 ${Number.isFinite(killT) ? killT.toFixed(0) + '초' : '불가'} ${tip} · 적 명중 ${pct(v.mHit)} · 첫 돌파 보상 ${SPN_T[r.k]} +${fmt(r.v)}</div>
+    <div style="margin-top:6px">탑 보너스 (영구): <span class="sp">${spTextTW(g.towerBonus()) || '없음'}</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+      <button class="btn pri twgo"${inTw ? ' disabled' : ''}>${inTw ? '오르는 중…' : `⚔ ${F}층 도전`}</button>
+      ${w.best >= 10 ? `<button class="btn twgo2"${inTw ? ' disabled' : ''}>↺ ${Math.max(1, F - 10)}층부터 (몸풀기)</button>` : ''}
+      <label class="tg"><input type="checkbox" class="twa"${w.auto !== false ? ' checked' : ''}> 이기면 자동으로 다음 층</label>
+    </div>
+    <div class="mut">탑에 오르는 동안 스킬은 멈춥니다 · 쓰러지거나 시간이 지나면 그때까지 보상</div>`);
+  c.querySelector('.twgo').addEventListener('click', () => g.startTower(F));
+  c.querySelector('.twgo2')?.addEventListener('click', () => g.startTower(Math.max(1, F - 10)));
+  c.querySelector('.twa').addEventListener('change', (e) => { w.auto = e.target.checked; });
+  p.appendChild(c);
+  const rows = [];
+  for (let k = F; k < F + 10; k++) { const x = twReward(k), mm = twMonster(k); rows.push(`${mm.boss ? '👑' : '·'} ${k}층 Lv ${mm.lvl} ${mm.icon} ${mm.name} → ${SPN_T[x.k]} +${fmt(x.v)}`); }
+  p.appendChild(h('div', 'card mut', `<b>다가오는 층 보상</b><br>${rows.join('<br>')}`));
+}
+U.townExtra = [...U.townExtra, ['tower', '🗼 탑']];
+U.townFns.tower = townTower;
+const _sigTW = U.sigX;
+U.sigX = function () { const s = this.g.s; return [..._sigTW.call(this), s.tw?.best, s.tw?.auto, s.activity?.type === 'tower']; };
