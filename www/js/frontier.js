@@ -1807,7 +1807,7 @@ const sfBreakTo = (k) => (k < 22 ? 12 : 20); // 파괴되면 이 별로 (22성�
 const SF_HI = [0.32, 0.3, 0.28, 0.26, 0.24, 0.22, 0.2, 0.18]; // 22 ~ 29성 성공 확률
 const SF_OFF = ['atk', 'str', 'rng', 'mag'];
 // 부위별 능력치 비율: 무기 = 공격 계열 / 방어구 = 방어 + 공격 계열 일부 / 장신구 = 공격 계열 위주
-const sfMix = (sl) => (sl === 'weapon' ? { off: 1, def: 0 } : sl === 'ring' || sl === 'amulet' ? { off: 0.6, def: 0.3 } : { off: 0.35, def: 1 });
+const sfMix = (sl) => (sl === 'weapon' ? { off: 1, def: 0 } : SLOTS_SF[sl]?.cat === 'acc' ? { off: 0.6, def: 0.3 } : { off: 0.35, def: 1 });
 // k번째 별 하나가 주는 기본 수치 (뒤로 갈수록 크게)
 const sfGain = (k) => 2 + 0.8 * k + (k > 15 ? 0.5 * (k - 15) ** 1.7 : 0);
 export const sfRate = (k) => {

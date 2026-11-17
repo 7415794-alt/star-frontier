@@ -98,10 +98,14 @@ export function rollRarity(min = 1) {
 }
 export const gearId = (base, r) => (r > 1 ? `${base}_r${r}` : base);
 export const SLOTS = {
-  weapon: { name: '무기', icon: '⚔️' }, head: { name: '머리', icon: '⛑️' },
-  body: { name: '상의', icon: '👕' }, legs: { name: '하의', icon: '👖' }, gloves: { name: '장갑', icon: '🧤' },
-  boots: { name: '신발', icon: '👢' }, amulet: { name: '목걸이', icon: '📿' }, ring: { name: '반지', icon: '💍' }, cape: { name: '망토', icon: '🧣' },
+  weapon: { name: '무기', icon: '⚔️', cat: 'weapon' },
+  head: { name: '머리', icon: '⛑️', cat: 'armor' }, shoulder: { name: '어깨', icon: '🎖️', cat: 'armor' }, body: { name: '상의', icon: '👕', cat: 'armor' },
+  legs: { name: '하의', icon: '👖', cat: 'armor' }, gloves: { name: '장갑', icon: '🧤', cat: 'armor' }, boots: { name: '신발', icon: '👢', cat: 'armor' },
+  belt: { name: '허리띠', icon: '🎗️', cat: 'armor' }, cape: { name: '망토', icon: '🧣', cat: 'armor' },
+  amulet: { name: '목걸이', icon: '📿', cat: 'acc' }, ring: { name: '반지', icon: '💍', cat: 'acc' }, earring: { name: '귀걸이', icon: '🔸', cat: 'acc' },
 };
+// 장비 소분류
+export const SLOT_CATS = { weapon: { name: '무기', icon: '⚔️' }, armor: { name: '방어구', icon: '🛡️' }, acc: { name: '장신구', icon: '💍' } };
 export const SLOT_IDS = Object.keys(SLOTS);
 export const STYLES = { melee: { name: '근접', icon: '⚔️' }, ranged: { name: '원거리', icon: '🏹' }, magic: { name: '마법', icon: '🔮' } };
 export const STYLE_IDS = ['melee', 'ranged', 'magic'];
@@ -263,6 +267,9 @@ export const GEAR = {
   amulet: { slot: 'amulet', name: '목걸이', icon: '📿', req: 'def', s: { atk: 0.35, str: 0.3, rng: 0.45, mag: 0.5 }, p: { ls: 0.004 }, mat: { bar: 1, gem: 1 }, skill: 'smith' },
   ring: { slot: 'ring', name: '반지', icon: '💍', req: 'def', s: { str: 0.3, rng: 0.4, mag: 0.45 }, p: { ls: 0.003, dr: 0.002 }, mat: { bar: 1, gem: 1 }, skill: 'smith' },
   cape: { slot: 'cape', name: '망토', icon: '🧣', req: 'def', s: { def: 0.5, str: 0.15, rng: 0.2, mag: 0.2 }, mat: { cloth: 2, hide: 2 }, skill: 'smith' },
+  pauld: { slot: 'shoulder', name: '어깨 보호대', icon: '🎖️', req: 'def', s: { def: 0.45, str: 0.1, rng: 0.1, mag: 0.1 }, mat: { bar: 1, hide: 1 }, skill: 'smith' },
+  belt: { slot: 'belt', name: '허리띠', icon: '🎗️', req: 'def', s: { def: 0.35, atk: 0.15, rng: 0.15, mag: 0.15 }, mat: { hide: 2 }, skill: 'smith' },
+  earring: { slot: 'earring', name: '귀걸이', icon: '🔸', req: 'def', s: { atk: 0.25, str: 0.2, rng: 0.3, mag: 0.35 }, p: { ls: 0.001 }, mat: { bar: 1, gem: 1 }, skill: 'smith' },
 };
 function gearStats(type, t) {
   const g = GEAR[type];
@@ -321,12 +328,13 @@ function lootTable(style, t, i, boss) {
   if (boss) {
     L.push([`bar${t}`, 0.35, 2, 4], [`ore${t}`, 0.5, 3, 6]);
     for (const ty of STYLE_GEAR[style]) L.push([ty + t, 0.06, 1, 1]);
-    for (const ty of ['amulet', 'ring', 'cape']) L.push([ty + t, 0.05, 1, 1]);
+    for (const ty of ['amulet', 'ring', 'cape', 'pauld', 'belt', 'earring']) L.push([ty + t, 0.05, 1, 1]);
   } else {
     // 일반 몬스터: 자기 방식 장비 중 일부 (몬스터마다 다른 조합)
     const list = STYLE_GEAR[style];
     for (let k = 0; k < 4; k++) L.push([list[(i * 2 + k) % list.length] + t, 0.012, 1, 1]);
-    if (i === 2) L.push([`ring${t}`, 0.004, 1, 1], [`amulet${t}`, 0.004, 1, 1]);
+    if (i === 2) L.push([`ring${t}`, 0.004, 1, 1], [`amulet${t}`, 0.004, 1, 1], [`earring${t}`, 0.004, 1, 1]);
+    if (i === 1) L.push([`pauld${t}`, 0.006, 1, 1], [`belt${t}`, 0.006, 1, 1]);
   }
   // 같은 아이템이 두 번 나오면 (첫 지역의 하위 재료 등) 하나로 합침
   const seen = new Map();

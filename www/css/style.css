@@ -144,3 +144,21 @@ html, body { overflow-x: hidden; max-width: 100%; overscroll-behavior-x: none; }
 #panel img, #panel table, #panel select, #panel input { max-width: 100%; }
 .tabs { overflow-x: hidden; }
 .offbar { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); z-index: 50; background: var(--card); border: 1px solid var(--acc); border-radius: 10px; padding: 8px 14px; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.4); white-space: nowrap; }
+
+/* 장비창 */
+.gsum .gpow { font-size: 16px; margin-bottom: 6px; }
+.gcat { flex-wrap: nowrap; }
+.gcat button { flex: 1 1 0; min-width: 0; white-space: nowrap; font-size: 12px; padding: 7px 2px; }
+.slot .star { color: #ffd84d; font-weight: 700; }
+.slot.empty { opacity: .6; border-style: dashed; }
+details.gslot { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; padding: 0 6px; }
+details.gslot > summary { padding: 9px 4px; cursor: pointer; list-style: none; }
+details.gslot > summary::-webkit-details-marker { display: none; }
+details.gslot > summary::before { content: '▸ '; color: var(--mut); }
+details.gslot[open] > summary::before { content: '▾ '; }
+details.gslot .row { background: transparent; border-width: 0; border-top: 1px solid var(--line); border-radius: 0; margin: 0; padding: 8px 4px; }
+.row .gst { font-size: 12px; }
+.row .gbtn { display: flex; flex-direction: column; gap: 4px; }
+.up { color: #4ade80; font-weight: 700; }
+.dn { color: #f87171; }
+details.card > summary { cursor: pointer; }

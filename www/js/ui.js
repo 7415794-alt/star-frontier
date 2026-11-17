@@ -1,6 +1,6 @@
 // 별무리 개척기 — 화면
 import {
-  VERSION, SKILLS, SKILL, ITEMS, SLOTS, SLOT_IDS, STYLES, ZONES, ACTIONS, PRAYERS, PETS, TIERS, STATS, STAT_IDS, SPELLS, CAPS,
+  VERSION, SKILLS, SKILL, ITEMS, SLOTS, SLOT_IDS, SLOT_CATS, STYLES, ZONES, ACTIONS, PRAYERS, PETS, TIERS, STATS, STAT_IDS, SPELLS, CAPS,
   XP_TABLE, MAX_LVL, SPECIAL_NAMES, SHOP, FLAT_SP, HUNT_NAMES, HUNT_TIERS, HUNT_PER, huntTier, USE_NAMES, TOOLS,
 } from './data.js';
 import { exportSave, importSave, C } from './game.js';
@@ -364,53 +364,105 @@ export class UI {
     return [stText(it.st), it.speed ? `주기 ${it.speed}초` : '', it.twoHand ? '양손' : '', `요구 ${SKILL[it.req[0]].name} ${it.req[1]}`].filter(Boolean).join(' · ');
   }
 
-  // ---------- 장비 ----------
+  // ---------- 장비 (소분류: 전체 · 무기 · 방어구 · 장신구 · 기타) ----------
   tabGear(p) {
     const g = this.g, s = g.s;
+    const cat = this.gearCat || 'all';
+    const inCat = (sl) => cat === 'all' || SLOTS[sl]?.cat === cat;
+    // 요약: 전투력 · 장비 스탯
+    const b = g.bonuses();
+    const sum = h('div', 'card gsum', `<div class="gpow">⚔ 전투력 <b>${fmt(g.power())}</b> <span class="mut">· ${STYLES[g.style()].icon} ${STYLES[g.style()].name}</span></div>
+      <div class="stats">${STAT_IDS.map((k) => `<div>${STATS[k].icon} ${STATS[k].name} <b>+${stVal(k, b.st[k])}</b></div>`).join('')}</div>`);
+    p.appendChild(sum);
+    // 소분류 버튼
+    const tabs = [['all', '📋 전체'], ...Object.entries(SLOT_CATS).map(([k, c]) => [k, `${c.icon} ${c.name}`]), ['etc', '🧰 기타']];
+    const seg = h('div', 'seg gcat');
+    for (const [k, n] of tabs) {
+      const bt = h('button', k === cat ? 'on' : '', n);
+      bt.addEventListener('click', () => { this.gearCat = k; this._rT = 0; this.render(true); });
+      seg.appendChild(bt);
+    }
+    p.appendChild(seg);
+
+    if (cat === 'etc') {
+      const lf = ITEMS[s.life];
+      const lc = h('div', 'card', `<b>🌿 생활 장신구</b> ${lf ? `${lf.icon} ${lf.name} <span class="sp">${spText(lf.fx)}</span> <button class="btn sm lu">해제</button>` : '<span class="mut">없음 (대장에서 제작 · 가방에서 장착)</span>'}
+        <div class="mut" style="margin-top:4px">🧰 도구: ${Object.entries(TOOLS).map(([sk, t]) => `${t.icon} ${ITEMS[s.tools?.[sk]]?.name || '없음'}`).join(' · ')}</div>
+        <div style="margin-top:6px"><b>기도 · 펫 · 기타 보너스</b><div class="sp">${spText(b.sp) || '없음'}</div></div>`);
+      $('.lu', lc)?.addEventListener('click', () => g.unequipLife());
+      p.appendChild(lc);
+      this.gearSettings(p);
+      this.gearToolsCard?.(p);
+      p.appendChild(h('div', 'h', '🐾 펫'));
+      this.tabPets(p);
+      return;
+    }
+
+    // 착용 중 (부위 칸)
+    const slots = SLOT_IDS.filter(inCat);
+    p.appendChild(h('div', 'h', `착용 중 <span class="mut">${slots.filter((sl) => s.equip[sl]).length} / ${slots.length}칸 · 칸을 누르면 해제</span>`));
     const grid = h('div', 'grid2');
-    for (const sl of SLOT_IDS) {
+    for (const sl of slots) {
       const it = ITEMS[s.equip[sl]];
-      const c = h('div', 'slot', `<div class="t">${SLOTS[sl].icon} ${SLOTS[sl].name}</div><div class="n" style="color:${it ? icol(it) : 'var(--mut)'}">${it ? it.icon + ' ' + it.name : '비어 있음'}</div>${it ? `<div class="t">${stText(it.st)}</div>` : ''}`);
-      if (it) { c.style.cursor = 'pointer'; c.title = '눌러서 해제'; c.addEventListener('click', () => g.unequip(sl)); }
+      const star = g.sfStars ? g.sfStars(sl) : 0;
+      const c = h('div', 'slot' + (it ? '' : ' empty'), `<div class="t">${SLOTS[sl].icon} ${SLOTS[sl].name}${star ? ` <span class="star">★${star}</span>` : ''}</div>
+        <div class="n" style="color:${it ? icol(it) : 'var(--mut)'}">${it ? it.icon + ' ' + it.name : '비어 있음'}</div>${it ? `<div class="t">${stText(it.st)}</div>` : ''}`);
+      if (it) { c.style.cursor = 'pointer'; c.addEventListener('click', () => g.unequip(sl)); }
       grid.appendChild(c);
     }
-    p.appendChild(h('div', 'mut', '장착한 칸을 누르면 해제 · 장비 스탯: 공격 · 힘 · 방어 · 원거리 · 마법 · 생명력 흡수 · 피해 감소'));
     p.appendChild(grid);
-    const lf = ITEMS[s.life];
-    const lc = h('div', 'card', `🌿 생활 장신구: <b>${lf ? lf.icon + ' ' + lf.name : '없음'}</b> ${lf ? `<span class="sp">${spText(lf.fx)}</span> <button class="btn sm lu">해제</button>` : '<span class="mut">(공예에서 제작 · 가방에서 장착)</span>'}
-      <div class="mut">도구: ${Object.entries(TOOLS).map(([sk, t]) => `${t.icon} ${ITEMS[s.tools?.[sk]]?.name || '없음'}`).join(' · ')}</div>`);
-    $('.lu', lc)?.addEventListener('click', () => g.unequipLife());
-    p.appendChild(lc);
-    const b = g.bonuses();
-    const tbl = `<div class="stats">${STAT_IDS.map((k) => `<div>${STATS[k].icon} ${STATS[k].name} <b>+${stVal(k, b.st[k])}</b></div>`).join('')}</div>`;
-    p.appendChild(h('div', 'card', `<b>장비 보너스</b>${tbl}<div style="margin-top:6px"><b>기도 · 펫 보너스</b><div class="sp">${spText(b.sp) || '없음'}</div></div>`));
-    const ae = h('div', 'card', `<label class="tg"><input type="checkbox" class="ae"${s.autoEquip ? ' checked' : ''}> 🔄 더 좋은 장비 자동 장착</label>
+
+    // 가방의 장비: 부위별로 묶고, 전투력이 오르는 것부터
+    const all = Object.keys(s.bank).filter((id) => ITEMS[id]?.kind === 'gear' && inCat(ITEMS[id].slot));
+    const bySlot = {};
+    for (const id of all) {
+      const it = ITEMS[id], ok = g.canEquip(id), d = g.equipDelta(id);
+      if (s.hideWeak && ok && d < -0.05) continue;
+      (bySlot[it.slot] ||= []).push({ id, it, ok, d });
+    }
+    const tot = Object.values(bySlot).reduce((a, l) => a + l.length, 0);
+    p.appendChild(h('div', 'h', `가방의 장비 <span class="mut">${tot}종${s.hideWeak ? ' · 약한 장비 숨김' : ''}</span>`));
+    if (!tot) p.appendChild(h('div', 'card mut', '이 분류의 장비가 없습니다 · 몬스터 드롭 · 대장 제작으로 얻습니다'));
+    this._gOpen ||= new Set();
+    for (const sl of slots) {
+      const list = bySlot[sl];
+      if (!list?.length) continue;
+      list.sort((a, c) => (c.ok - a.ok) || (c.d - a.d) || (c.it.t - a.it.t) || (c.it.r - a.it.r));
+      const up = list.filter((x) => x.ok && x.d >= 0.05).length;
+      const det = h('details', 'gslot');
+      if (this._gOpen.has(sl) || up || cat !== 'all') det.open = true;
+      det.addEventListener('toggle', () => { if (det.open) this._gOpen.add(sl); else this._gOpen.delete(sl); });
+      det.appendChild(h('summary', '', `${SLOTS[sl].icon} <b>${SLOTS[sl].name}</b> <span class="mut">${list.length}종</span>${up ? ` <span class="up">▲ 더 좋은 장비 ${up}</span>` : ''}`));
+      for (const { id, it, ok, d } of list) {
+        const dt = Math.abs(d) >= 0.05 ? `<span class="${d > 0 ? 'up' : 'dn'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d) < 10 ? Math.abs(d).toFixed(1) : fmt(Math.abs(d))}</span>` : '<span class="mut">＝</span>';
+        const r = h('div', 'row grow' + (ok ? '' : ' lock'), `<div class="ic">${it.icon}</div><div class="info"><div class="nm" style="color:${icol(it)}">${it.name} <span class="mut">x${g.have(id)}</span></div>
+          <div class="gst">${stText(it.st)}</div><div class="mut">${dt} · ${it.style ? STYLES[it.style].icon + ' ' : ''}요구 ${SKILL[it.req[0]].name} ${it.req[1]}${it.speed ? ` · 주기 ${it.speed}초` : ''}</div></div>
+          <div class="gbtn"><button class="btn sm pri eq"${ok ? '' : ' disabled'}>장착</button><button class="btn sm sl">💰${fmt(it.value)}</button></div>`);
+        $('.eq', r).addEventListener('click', () => g.equip(id));
+        $('.sl', r).addEventListener('click', () => g.sell(id, 1));
+        det.appendChild(r);
+      }
+      p.appendChild(det);
+    }
+    if (cat === 'all') { this.gearSettings(p); this.gearToolsCard?.(p); }
+  }
+
+  // 장비 설정 (접어 둠)
+  gearSettings(p) {
+    const g = this.g, s = g.s;
+    const ae = h('details', 'card', `<summary><b>⚙ 장비 설정</b> <span class="mut">자동 장착 ${s.autoEquip ? '켜짐' : '꺼짐'}</span></summary>
+      <label class="tg"><input type="checkbox" class="ae"${s.autoEquip ? ' checked' : ''}> 🔄 더 좋은 장비 자동 장착</label>
       <label class="tg"><input type="checkbox" class="fd"${s.favorDef ? ' checked' : ''}> 🛡️ 자동 장착은 방어 우선</label>
       <label class="tg"><input type="checkbox" class="hw"${s.hideWeak ? ' checked' : ''}> 🙈 지금보다 약한 장비 숨기기</label>
-      <label class="tg">📦 장비 드롭 알림 <select class="gt">${[[1, '모두 보기'], [3, '희귀 이상만'], [4, '영웅 이상만'], [5, '전설 이상만'], [99, '끄기']].map(([v, n]) => `<option value="${v}"${(s.gearToast ?? 1) === v ? ' selected' : ''}>${n}</option>`).join('')}</select></label><div class="mut">무기는 지금 전투 방식과 같은 것만 바꿉니다 · 장비는 등급(일반~유물)이 무작위로 붙고 등급이 높을수록 스탯이 큽니다</div>`);
+      <label class="tg">📦 장비 드롭 알림 <select class="gt">${[[1, '모두 보기'], [3, '희귀 이상만'], [4, '영웅 이상만'], [5, '전설 이상만'], [99, '끄기']].map(([v, n]) => `<option value="${v}"${(s.gearToast ?? 1) === v ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+      <div class="mut">장비는 등급(일반~유물)이 무작위로 붙고 등급이 높을수록 스탯이 큽니다 · ▲▼는 끼었을 때 전투력 변화</div>`);
+    if (this._gSetOpen) ae.open = true;
+    ae.addEventListener('toggle', () => { this._gSetOpen = ae.open; });
     $('.ae', ae).addEventListener('change', (e) => { s.autoEquip = e.target.checked; if (s.autoEquip) Object.keys(s.bank).filter((id) => ITEMS[id].kind === 'gear').forEach((id) => g.autoEquipCheck(id)); });
     $('.fd', ae).addEventListener('change', (e) => { s.favorDef = e.target.checked; });
-    $('.hw', ae).addEventListener('change', (e) => { s.hideWeak = e.target.checked; });
+    $('.hw', ae).addEventListener('change', (e) => { s.hideWeak = e.target.checked; this.render(true); });
     $('.gt', ae).addEventListener('change', (e) => { s.gearToast = +e.target.value; });
     p.appendChild(ae);
-    this.gearToolsCard?.(p);
-    p.appendChild(h('div', 'h', '가방의 장비'));
-    const gear = Object.keys(s.bank).filter((id) => ITEMS[id].kind === 'gear').sort((a, c) => ITEMS[c].t - ITEMS[a].t || ITEMS[a].slot.localeCompare(ITEMS[c].slot) || ITEMS[c].r - ITEMS[a].r);
-    if (!gear.length) p.appendChild(h('div', 'mut', '장비가 없습니다. 몬스터 드롭 · 대장 · 공예로 얻습니다.'));
-    for (const id of gear) {
-      const it = ITEMS[id];
-      const ok = g.canEquip(id);
-      const d = g.equipDelta(id);
-      if (s.hideWeak && ok && d < -0.05) continue;
-      const dt = Math.abs(d) >= 0.05 ? `<span style="color:${d > 0 ? '#4ade80' : '#f87171'}">전투력 ${d > 0 ? '+' : ''}${Math.abs(d) < 10 ? d.toFixed(1) : fmt(d)}</span>` : '<span class="mut">전투력 변화 없음</span>';
-      const r = h('div', 'row' + (ok ? '' : ' lock'), `<div class="ic">${it.icon}</div><div class="info"><div class="nm" style="color:${icol(it)}">${it.name} <span class="mut">x${g.have(id)} · ${SLOTS[it.slot].name}</span></div><div class="mut">${this.gearLine(it)}</div><div class="mut">${dt}</div></div>
-        <div style="display:flex;flex-direction:column;gap:4px"><button class="btn sm pri eq"${ok ? '' : ' disabled'}>장착</button><button class="btn sm sl">판매 ${fmt(it.value)}</button></div>`);
-      $('.eq', r).addEventListener('click', () => g.equip(id));
-      $('.sl', r).addEventListener('click', () => g.sell(id, 1));
-      p.appendChild(r);
-    }
-    p.appendChild(h('div', 'h', '🐾 펫'));
-    this.tabPets(p);
   }
 
   // 마신 물약 (남은 횟수는 상단 행동 패널에서도 보임)
