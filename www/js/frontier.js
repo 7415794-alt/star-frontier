@@ -2167,3 +2167,71 @@ U.townExtra = [...U.townExtra, ['ach', '🏆 업적']];
 U.townFns.ach = townAch;
 const _sigACH = U.sigX;
 U.sigX = function () { const s = this.g.s; return [..._sigACH.call(this), Object.keys(s.ach || {}).length, this.town === 'ach' ? Math.floor((s.stats?.kills || 0) / 50) : 0]; };
+
+// ====================== 렉 줄이기 ======================
+// 능력치 묶음(profile)은 장비 · 보너스가 바뀌지 않으면 30번까지 다시 씀 (전투 틱마다 새로 계산하지 않음)
+const _profL = P.profile;
+P.profile = function () {
+  const c = this.rt.cache;
+  if (c && this._pfC === c && this._pfN < 30) { this._pfN++; return this._pf; }
+  const p = _profL.call(this);
+  this._pf = p; this._pfC = this.rt.cache; this._pfN = 0;
+  return p;
+};
+// 게임 진행 중에 돌아가는 자동 기능은 실제 시간으로 간격을 둠 (빠른 배속에서도 초당 수십 번 돌지 않게)
+const _updL = P.update;
+P.update = function (dt) { this._inUpd = true; try { return _updL.call(this, dt); } finally { this._inUpd = false; } };
+const throttleReal = (name, ms) => {
+  const o = P[name];
+  if (!o) return;
+  P[name] = function (...a) {
+    if (!this._inUpd) return o.apply(this, a); // 버튼으로 부른 건 바로
+    const now = performance.now(), k = '_thr_' + name;
+    if (now - (this[k] || 0) < ms) return undefined;
+    this[k] = now;
+    return o.apply(this, a);
+  };
+};
+throttleReal('autoDonate', 3000);
+throttleReal('autoQuest', 1000);
+throttleReal('autoBest', 5000);
+throttleReal('combineAll', 3000);
+// 자동 조합 확인용 목록도 진행 중에는 3초 동안 재사용
+const _combinableL = P.combinable;
+P.combinable = function () {
+  if (!this._inUpd) return _combinableL.call(this);
+  const now = performance.now();
+  if (!this._cbL || now - this._cbT > 3000) { this._cbL = _combinableL.call(this); this._cbT = now; }
+  return this._cbL;
+};
+// 화면을 누르면 가방 변화도 바로 다시 그림
+if (typeof document !== 'undefined') document.addEventListener('click', (e) => { if (e.target.closest?.('#panel') && window.ui) window.ui._bkT = 0; }, true);
+// 장비를 바꿔 볼 때마다 다시 계산하던 보너스들 기억해 두기 (장비와 상관없는 것들)
+const sumKey = (o) => { let n = 0, t = 0; for (const k in o || {}) { n++; t += +o[k] || 0; } return n + ':' + t; };
+const _openPrL = P.openPrayers;
+P.openPrayers = function () {
+  const k = this.lvl('div') + '|' + (this.s.tomes || []).length;
+  if (this._opK !== k) { this._opK = k; this._opV = _openPrL.call(this); }
+  return this._opV;
+};
+const _musBL = P.museumBonus;
+P.museumBonus = function (style) {
+  const st = style ?? this.museumStyle();
+  const k = st + '|' + sumKey(this.s.museum);
+  this._mbC ||= new Map();
+  if (this._mbK !== sumKey(this.s.museum)) { this._mbK = sumKey(this.s.museum); this._mbC.clear(); }
+  if (!this._mbC.has(k)) this._mbC.set(k, _musBL.call(this, st));
+  return this._mbC.get(k);
+};
+const _mlbL = P.museumLootBonus;
+P.museumLootBonus = function () {
+  const k = sumKey(this.s.museumLoot);
+  if (this._mlK !== k) { this._mlK = k; this._mlV = _mlbL.call(this); }
+  return this._mlV;
+};
+const _talBL = P.talentBonus;
+if (_talBL) P.talentBonus = function () {
+  const k = sumKey(this.s.talents);
+  if (this._tbK !== k) { this._tbK = k; this._tbV = _talBL.call(this); }
+  return this._tbV;
+};

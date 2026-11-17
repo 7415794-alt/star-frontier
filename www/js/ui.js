@@ -58,8 +58,15 @@ export class UI {
   // 바뀐 게 있을 때만 패널을 다시 그림 (스크롤 유지)
   signature() {
     const s = this.g.s;
-    return JSON.stringify([this.tab, this.zone, this.skillSel, s.bank, s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.gearToast, s.favPrayer, s.favPet, s.sfx, s.cb, Object.values(s.effects || {}).map((e) => e.id), s.tools, s.life, s.autoPot, s.quests, s.talents, s.museum, s.trader, s.candy, this.town, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0, this.sigX ? this.sigX() : 0]);
+    return JSON.stringify([this.tab, this.zone, this.skillSel, this.bankSig(), s.equip, s.activity, s.prayer, s.pet, s.pets, s.spell, this.recMode, s.autoEat, s.showNums, s.keepFood, s.autoEquip, s.favorDef, s.eatWorst, s.eatDanger, s.stopNoFood, s.goals, s.hideWeak, s.gearToast, s.favPrayer, s.favPet, s.sfx, s.cb, Object.values(s.effects || {}).map((e) => e.id), s.tools, s.life, s.autoPot, s.quests, s.talents, s.museum, s.trader, s.candy, this.town, this.codex, this.codexQ, this.calcSkill, this.calcTarget, SKILLS.map((k) => this.g.lvl(k.id)), this.tab === 'bank' ? s.coins : 0, this.sigX ? this.sigX() : 0]);
   }
+  // 전리품이 계속 들어와도 가방 때문에 다시 그리는 건 4초에 한 번 (화면을 누르면 바로)
+  bankSig() {
+    const now = performance.now();
+    if (this._bkS == null || now - (this._bkT || 0) > 4000) { this._bkT = now; this._bkS = JSON.stringify(this.g.s.bank); }
+    return this._bkS;
+  }
+
   render(force = false) {
     const ae = document.activeElement;
     if (!force && ae?.closest?.('#panel') && (ae.tagName === 'SELECT' || (ae.tagName === 'INPUT' && /^(text|search|number)$/.test(ae.type)))) return;
@@ -433,18 +440,38 @@ export class UI {
       if (this._gOpen.has(sl) || up || cat !== 'all') det.open = true;
       det.addEventListener('toggle', () => { if (det.open) this._gOpen.add(sl); else this._gOpen.delete(sl); });
       det.appendChild(h('summary', '', `${SLOTS[sl].icon} <b>${SLOTS[sl].name}</b> <span class="mut">${list.length}종</span>${up ? ` <span class="up">▲ 더 좋은 장비 ${up}</span>` : ''}`));
-      for (const { id, it, ok, d } of list) {
+      // 펼친 부위만 줄을 만듦 (렉 줄이기) · 처음 15개만, 나머지는 더 보기
+      const fill = () => {
+        if (det._filled) return;
+        det._filled = true;
+        const more = this._gMore?.has(sl);
+        const shown = more ? list : list.slice(0, cat === 'all' ? 8 : 15);
+        for (const x of shown) det.appendChild(this.gearRow(x));
+        if (!more && list.length > shown.length) {
+          const mb = h('button', 'btn sm', `더 보기 (${list.length - shown.length}개)`);
+          mb.style.margin = '6px 4px 8px';
+          mb.addEventListener('click', () => { (this._gMore ||= new Set()).add(sl); this.render(true); });
+          det.appendChild(mb);
+        }
+      };
+      if (det.open) fill();
+      det.addEventListener('toggle', () => { if (det.open) fill(); });
+      p.appendChild(det);
+    }
+    if (cat === 'all') { this.gearSettings(p); this.gearToolsCard?.(p); }
+  }
+
+  gearRow({ id, it, ok, d }) {
+    const g = this.g;
+    {
         const dt = Math.abs(d) >= 0.05 ? `<span class="${d > 0 ? 'up' : 'dn'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d) < 10 ? Math.abs(d).toFixed(1) : fmt(Math.abs(d))}</span>` : '<span class="mut">＝</span>';
         const r = h('div', 'row grow' + (ok ? '' : ' lock'), `<div class="ic">${it.icon}</div><div class="info"><div class="nm" style="color:${icol(it)}">${it.name} <span class="mut">x${g.have(id)}</span></div>
           <div class="gst">${stText(it.st)}</div><div class="mut">${dt} · ${it.style ? STYLES[it.style].icon + ' ' : ''}요구 ${SKILL[it.req[0]].name} ${it.req[1]}${it.speed ? ` · 주기 ${it.speed}초` : ''}</div></div>
           <div class="gbtn"><button class="btn sm pri eq"${ok ? '' : ' disabled'}>장착</button><button class="btn sm sl">💰${fmt(it.value)}</button></div>`);
         $('.eq', r).addEventListener('click', () => g.equip(id));
         $('.sl', r).addEventListener('click', () => g.sell(id, 1));
-        det.appendChild(r);
-      }
-      p.appendChild(det);
+        return r;
     }
-    if (cat === 'all') { this.gearSettings(p); this.gearToolsCard?.(p); }
   }
 
   // 장비 설정 (접어 둠)
@@ -489,8 +516,22 @@ export class UI {
   // ---------- 가방 · 상점 ----------
   tabBank(p) {
     const g = this.g, s = g.s;
-    const ids = Object.keys(s.bank).filter((id) => ITEMS[id].kind !== 'gear').sort((a, b) => (ITEMS[a].kind + ITEMS[a].t).localeCompare(ITEMS[b].kind + ITEMS[b].t));
-    p.appendChild(h('div', 'h', `🎒 가방 (${ids.length}종) · 💰 ${fmt(s.coins)}`));
+    const allIds = Object.keys(s.bank).filter((id) => ITEMS[id] && ITEMS[id].kind !== 'gear');
+    const BC = [['mat', '🪵 재료', (k) => k === 'mat'], ['food', '🍲 음식', (k) => k === 'food' || k === 'raw'], ['bone', '🦴 뼈', (k) => k === 'bone'], ['pot', '🧪 물약', (k) => k === 'potion'], ['box', '🎁 상자', (k) => k === 'box'], ['etc', '🧰 기타', (k) => !['mat', 'food', 'raw', 'bone', 'potion', 'box'].includes(k)]];
+    const bc = this.bankCat || 'mat';
+    const seg = h('div', 'seg gcat');
+    for (const [k, n, f] of BC) {
+      const c = allIds.filter((id) => f(ITEMS[id].kind)).length;
+      const bt = h('button', k === bc ? 'on' : '', `${n}<small style="display:block;color:var(--mut);font-size:10px">${c}</small>`);
+      bt.addEventListener('click', () => { this.bankCat = k; this._bkMore = false; this.render(true); });
+      seg.appendChild(bt);
+    }
+    const fn = BC.find((x) => x[0] === bc)[2];
+    const ids0 = allIds.filter((id) => fn(ITEMS[id].kind)).sort((a, b) => (ITEMS[a].kind + String(ITEMS[a].t ?? 0).padStart(2, '0')).localeCompare(ITEMS[b].kind + String(ITEMS[b].t ?? 0).padStart(2, '0')) || ITEMS[a].name.localeCompare(ITEMS[b].name));
+    const ids = this._bkMore ? ids0 : ids0.slice(0, 60);
+    p.appendChild(h('div', 'h', `🎒 가방 (${allIds.length}종) · 💰 ${fmt(s.coins)}`));
+    p.appendChild(seg);
+    if (!ids.length) p.appendChild(h('div', 'card mut', '이 분류에는 아이템이 없습니다'));
     for (const id of ids) {
       const it = ITEMS[id];
       const extra = it.kind === 'food' ? ` · 회복 ${it.heal}` : it.kind === 'bone' ? ` · 신성 XP ${it.xp}` : itemInfo(it) ? `<br><span class="sp">${itemInfo(it)}</span>` : '';
@@ -507,6 +548,11 @@ export class UI {
       $('.s1', r).addEventListener('click', () => g.sell(id, 1));
       $('.sa', r).addEventListener('click', () => g.sell(id, g.have(id)));
       p.appendChild(r);
+    }
+    if (ids.length < ids0.length) {
+      const mb = h('button', 'btn', `더 보기 (${ids0.length - ids.length}개)`);
+      mb.addEventListener('click', () => { this._bkMore = true; this.render(true); });
+      p.appendChild(mb);
     }
     p.appendChild(h('div', 'h', '🏪 상점'));
     for (const sh of SHOP) {
