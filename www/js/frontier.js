@@ -567,12 +567,40 @@ P.bestLoadout = function (style) {
   } finally { s.equip = eq0; this.dirty(); }
 };
 P.loadoutPowers = function () {
-  const k = JSON.stringify([Object.keys(this.s.bank).filter((id) => ITEMS[id]?.kind === 'gear'), this.stateKey()]);
-  if (this._loKey !== k) {
-    this._lo = Object.fromEntries(['melee', 'ranged', 'magic'].map((st) => [st, this.bestLoadout(st)]));
-    this._loKey = k;
+  // 화면 그리는 중 연달아 부르면 (가방이 그대로이니) 방금 결과를 바로 사용
+  const now = performance.now();
+  if (this._lo && !this._inUpd && now - (this._loT || 0) < 50) return this._lo;
+  this._loT = now;
+  const k = this.stateKey();
+  const ids = Object.keys(this.s.bank).filter((id) => ITEMS[id]?.kind === 'gear');
+  // 렉 줄이기: 새로 들어온 장비가 모두 확실히 약하고, 최적 장비가 가방에서 빠지지 않았으면 그대로 사용
+  if (this._loKey === k && this._loIds && now - (this._loFull || 0) < 60000) { // 1분마다 한 번은 전부 다시 계산
+    const set = new Set(ids);
+    const used = new Set(Object.values(this._lo).flatMap((L) => (L ? Object.values(L.eq) : [])));
+    let ok = true;
+    for (const id of this._loIds) if (!set.has(id) && used.has(id)) { ok = false; break; }
+    if (ok) for (const id of ids) if (!this._loIds.has(id) && !this.loWeak(id)) { ok = false; break; }
+    if (ok) { this._loIds = set; return this._lo; }
   }
+  this._lo = Object.fromEntries(['melee', 'ranged', 'magic'].map((st) => [st, this.bestLoadout(st)]));
+  this._loKey = k;
+  this._loIds = new Set(ids);
+  this._loVer = (this._loVer || 0) + 1;
+  this._loFull = now;
   return this._lo;
+};
+// 이 장비가 모든 방식의 지금 최적 장비보다 대략 점수가 낮은지 (낮으면 최적 장비 찾기를 다시 안 함)
+P.loWeak = function (id) {
+  const it = ITEMS[id];
+  if (!this.canEquip(id)) return true;
+  for (const st of ['melee', 'ranged', 'magic']) {
+    if (it.slot === 'weapon' && it.style !== st) continue;
+    const L = this._lo[st];
+    if (!L) return false;
+    const cur = ITEMS[L.eq[it.slot]];
+    if (!cur || roughScore(it, st) >= roughScore(cur, st)) return false;
+  }
+  return true;
 };
 P.applyLoadout = function (style) {
   const L = this.bestLoadout(style);
@@ -1122,7 +1150,8 @@ P.donatable = function () { return _donatable.call(this).filter((id) => this.wea
 // weakForAll 결과 기억 (같은 상태 · 같은 가방이면 다시 계산 안 함)
 const _wfa = P.weakForAll;
 P.weakForAll = function (id) {
-  const k = this.stateKey() + '|' + Object.keys(this.s.bank).filter((x) => ITEMS[x]?.kind === 'gear').join(',');
+  this.loadoutPowers();
+  const k = this.stateKey() + '|' + this._loVer;
   if (this._wfaKey !== k) { this._wfaKey = k; this._wfa = new Map(); }
   if (!this._wfa.has(id)) this._wfa.set(id, _wfa.call(this, id));
   return this._wfa.get(id);

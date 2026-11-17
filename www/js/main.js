@@ -64,11 +64,12 @@ function loop(now) {
   // 배속: 게임 시간 = 실제 시간 x 배속 (프레임당 최대 1초 x 배속)
   acc += Math.min(dt, 1) * game.speed();
   // 렉 줄이기: 한 프레임에 계산은 최대 30번 · 10ms까지 (밀리면 한 번에 더 큰 단위로 계산)
-  const base = game.speed() >= 64 ? 0.1 : 0.05;
+  const sp = game.speed();
+  const base = sp >= 128 ? 0.25 : sp >= 64 ? 0.1 : 0.05;
   const step = Math.min(0.5, Math.max(base, acc / 30));
   const t0 = performance.now();
   let n = 0;
-  while (acc >= step && n++ < 30 && performance.now() - t0 < 10) { game.update(step); acc -= step; }
+  while (acc >= step && n++ < 30 && performance.now() - t0 < 8) { game.update(step); acc -= step; }
   if (acc > step * 60) acc = step * 60; // 폰이 따라가지 못하면 밀린 시간은 버림 (끊김 방지)
   // 화면 숫자 · 막대는 1초에 10번만 갱신 (떠오르는 숫자 움직임은 CSS가 처리)
   if (now - lastUi >= 100) { lastUi = now; ui.frame(); }
