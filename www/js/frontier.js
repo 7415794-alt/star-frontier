@@ -2861,9 +2861,9 @@ U.frame = function () {
   }
 };
 
-// ====================== ✨ 신성 확장: 최고 레벨 999 · 레벨마다 큰 고정 능력치 + % ======================
-export const DIV_MAX = 999;
-// 200레벨까지는 원래 표 · 그 뒤는 레벨마다 조금씩 더 많은 경험치 (999레벨까지 약 6억 XP)
+// ====================== ✨ 신성 확장: 최고 레벨 9999 · 레벨마다 큰 고정 능력치 + % ======================
+export const DIV_MAX = 9999;
+// 200레벨까지는 원래 표 · 그 뒤는 레벨마다 조금씩 더 많은 경험치 (999레벨까지 약 6.6억 XP · 2000레벨까지 약 26억 XP)
 const DIV_XP = (() => {
   const t = XP_T.slice(0, MAX_L + 1);
   const s200 = XP_T[MAX_L] - XP_T[MAX_L - 1];
@@ -2879,9 +2879,9 @@ const _lvlDiv = P.lvl;
 P.lvl = function (id) { return id === 'div' ? divLevelOf(this.s.xp.div || 0) : _lvlDiv.call(this, id); };
 P.divMax = DIV_MAX;
 P.divXpAt = (L) => DIV_XP[Math.min(DIV_MAX, L)];
-// 신성 보너스: 공격 · 힘 · 원거리 · 마법 고정 +0.9 x 레벨^1.2 (방어는 1.5배) · 모두 +0.04% x 레벨
+// 신성 보너스: 공격 · 힘 · 원거리 · 마법 고정 +0.9 x 레벨^1.2 (방어는 1.5배) · 모두 % (1000레벨까지 레벨마다 +0.04%, 그 뒤로 +0.01%)
 export const divBonusAt = (L) => {
-  const f = Math.round(0.9 * L ** 1.2), pc = 0.0004 * L;
+  const f = Math.round(0.9 * L ** 1.2), pc = 0.0004 * Math.min(L, 1000) + 0.0001 * Math.max(0, L - 1000);
   return { atkFlat: f, strFlat: f, rngFlat: f, magFlat: f, defFlat: Math.round(f * 1.5), atkPct: pc, strPct: pc, rngPct: pc, magPct: pc, defPct: pc };
 };
 P.divBonus = function () {
@@ -2924,7 +2924,7 @@ U.tabDiv = function (p) {
   const first = [...p.querySelectorAll('.card')].find((e) => e.textContent.includes('신성 Lv')) || p.querySelector('.card');
   const c = h('div', 'card', `<b>✨ 신성 보너스</b> <span class="mut">최고 Lv ${DIV_MAX}</span>
     <div class="sp">공격 · 힘 · 원거리 · 마법 +${fmt(b.atkFlat)} · 방어 +${fmt(b.defFlat)} · 모두 +${(b.atkPct * 100).toFixed(1)}%</div>
-    <div class="mut">다음 레벨: 고정 +${fmt(nx.atkFlat - b.atkFlat)} (방어 +${fmt(nx.defFlat - b.defFlat)}) · % +0.04% · Lv 500: 고정 +${fmt(divBonusAt(500).atkFlat)} · +20% / Lv 999: 고정 +${fmt(divBonusAt(999).atkFlat)} · +40%</div>`);
+    <div class="mut">다음 레벨: 고정 +${fmt(nx.atkFlat - b.atkFlat)} (방어 +${fmt(nx.defFlat - b.defFlat)}) · % +${L >= 1000 ? '0.01' : '0.04'}%<br>Lv 1000: 고정 +${fmt(divBonusAt(1000).atkFlat)} · +40% / Lv 3000: 고정 +${fmt(divBonusAt(3000).atkFlat)} · +60% / Lv 9999: 고정 +${fmt(divBonusAt(9999).atkFlat)} · +130%</div>`);
   if (first) first.after(c); else p.appendChild(c);
 };
 // 몬스터 밸런스: 신성 보너스만큼 100레벨 이상 몬스터를 더 강하게 (몬스터 레벨만큼 신성을 올린 플레이어 기준 · 230레벨 체력 +12% · 피해 +10% · 명중 · 방어 +6%)
