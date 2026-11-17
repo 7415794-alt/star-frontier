@@ -513,6 +513,17 @@ export const PETS = [
   { id: 'unicorn', name: '꼬마 유니콘', icon: '🦄', src: 'event', p: 0, price: 2500, fx: { atkPct: 0.06, strPct: 0.06, rngPct: 0.06, magPct: 0.06 } },
   { id: 'phoenix', name: '아기 불사조', icon: '🐦‍🔥', src: 'event', p: 0, price: 4000, fx: { hpTick: 20, ls: 0.015, bossDmg: 0.1 } },
 ];
+// 중간 지역 보스마다 희귀 펫 (능력치 1~2개 · 높은 지역일수록 조금 더 · 확률은 보스 레벨이 높을수록 낮음)
+const ZPET_FX = [['atkPct'], ['strPct'], ['defPct'], ['rngPct'], ['magPct'], ['drop'], ['gspd', 'pspd'], ['bossDmg'], ['heal'], ['hpTick'], ['ls'], ['dr']];
+const ZPET_PRE = ['아기', '꼬마', '새끼', '어린', '작은'];
+const zpVal = (key, t) => (key === 'hpTick' ? 4 + t : key === 'ls' || key === 'dr' ? 0.004 + 0.0004 * t : key === 'heal' ? 0.05 + 0.005 * t : 0.025 + 0.002 * t);
+ZONES.forEach((z) => {
+  if (PETS.some((x) => x.src === 'boss:' + z.z)) return; // 이미 펫이 있는 보스(처음 9지역)
+  const b = z.mons[3], k = +String(z.z).slice(1);
+  const keys = ZPET_FX[k % ZPET_FX.length];
+  PETS.push({ id: 'zp_' + z.z, name: `${z.n.split(' ')[0]} ${ZPET_PRE[k % ZPET_PRE.length]} ${b.name.split(' ').pop()}`, icon: b.icon, src: 'boss:' + z.z, p: 1 / Math.round(160 + 3 * b.lvl),
+    fx: Object.fromEntries(keys.map((x) => [x, Math.round(zpVal(x, z.t) * 10000) / 10000])) });
+});
 export const PET = Object.fromEntries(PETS.map((p) => [p.id, p]));
 
 // ---------- 전투 공식 ----------

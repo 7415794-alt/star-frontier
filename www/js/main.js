@@ -3,7 +3,7 @@ import { Game, newState, loadState, saveState, SAVE_KEY } from './game.js';
 import { UI } from './ui.js';
 import './town.js';
 import './frontier.js';
-import { ITEMS, SKILL } from './data.js';
+import { ITEMS, SKILL, OFFLINE_CAP } from './data.js';
 
 const state = loadState() || newState();
 const game = new Game(state);
@@ -15,24 +15,51 @@ const restart = (st) => {
   if (st) saveState(st); else localStorage.removeItem(SAVE_KEY);
   setTimeout(() => location.replace(location.href.split('#')[0]), 30);
 };
-// 오프라인 진행
+// 화면부터 바로 띄우고, 꺼져 있던 동안의 진행(오프라인)은 그 뒤에 조금씩 나눠 계산
 const away = (Date.now() - (state.lastSeen || Date.now())) / 1000;
-const off = game.offline(away);
 game.rt.hp = Math.min(game.rt.hp, game.maxHp());
 const ui = new UI(game, { save, restart });
 window.game = game; window.ui = ui;
-if (off && state.pop?.all !== false && state.pop?.modal !== false) {
-  const items = Object.entries(off.items).map(([id, n]) => `${ITEMS[id].icon}${ITEMS[id].name} +${n.toLocaleString()}`).join(', ') || '없음';
-  const xp = Object.entries(off.xp).map(([k, v]) => `${SKILL[k].name} +${Math.floor(v).toLocaleString()}`).join(', ') || '없음';
-  ui.modal('🌙 오프라인 진행', `${Math.floor(off.sec / 60)}분 동안 진행했습니다.<br>처치 ${off.kills} · 💰 +${off.coins.toLocaleString()}<br>경험치: ${xp}<br>획득: ${items}`, [{ label: '확인', pri: true }]);
+let offRun = false;
+function runOffline(sec, done) {
+  sec = Math.min(sec, OFFLINE_CAP);
+  if (offRun || sec < 30 || (!game.s.activity && !game.s.hunt)) return;
+  offRun = true;
+  const s = game.s, xp0 = { ...s.xp }, bank0 = { ...s.bank }, c0 = s.coins, k0 = s.stats.kills;
+  const step = sec > 600 ? 5 : 1; // 오래 꺼져 있었으면 5초 단위로 계산 (결과는 거의 같고 훨씬 빠름)
+  const bar = document.createElement('div');
+  bar.className = 'offbar';
+  document.body.appendChild(bar);
+  let t = 0;
+  const chunk = () => {
+    const end = performance.now() + 14;
+    game.quiet = true;
+    try { while (t < sec && performance.now() < end) { const d = Math.min(step, sec - t); game.update(d); t += d; } } finally { game.quiet = false; }
+    bar.textContent = `🌙 꺼져 있던 ${Math.floor(sec / 60)}분 진행 계산 중… ${Math.floor((t / sec) * 100)}%`;
+    if (t < sec) { setTimeout(chunk, 0); return; }
+    bar.remove();
+    offRun = false;
+    const xp = Object.fromEntries(Object.keys(s.xp).map((k) => [k, s.xp[k] - (xp0[k] || 0)]).filter(([, v]) => v > 0));
+    const items = Object.fromEntries(Object.keys(s.bank).map((k) => [k, s.bank[k] - (bank0[k] || 0)]).filter(([, v]) => v > 0));
+    done({ sec, xp, items, coins: s.coins - c0, kills: s.stats.kills - k0 });
+  };
+  setTimeout(chunk, 50);
 }
+runOffline(away, (off) => {
+  game.rt.hp = Math.min(game.rt.hp, game.maxHp());
+  if (state.pop?.all === false || state.pop?.modal === false) { game.toast(`🌙 ${Math.floor(off.sec / 60)}분 진행 · 처치 ${off.kills}`); return; }
+  const items = Object.entries(off.items).map(([id, n]) => `${ITEMS[id].icon}${ITEMS[id].name} +${n.toLocaleString()}`).join(', ') || '없음';
+  const xp = Object.entries(off.xp).map(([k, v]) => `${SKILL[k]?.name || k} +${Math.floor(v).toLocaleString()}`).join(', ') || '없음';
+  ui.modal('🌙 오프라인 진행', `${Math.floor(off.sec / 60)}분 동안 진행했습니다.<br>처치 ${off.kills} · 💰 +${off.coins.toLocaleString()}<br>경험치: ${xp}<br>획득: ${items}`, [{ label: '확인', pri: true }]);
+});
 
 let last = performance.now();
 let acc = 0;
 function loop(now) {
   let dt = (now - last) / 1000;
   last = now;
-  if (dt > 30) { const r = game.offline(dt); dt = 0; if (r) game.toast(`🌙 ${Math.floor(r.sec / 60)}분 진행 · 처치 ${r.kills}`); }
+  if (dt > 30) { runOffline(dt, (r) => game.toast(`🌙 ${Math.floor(r.sec / 60)}분 진행 · 처치 ${r.kills}`)); dt = 0; }
+  if (offRun) { ui.frame(); requestAnimationFrame(loop); return; } // 오프라인 계산 중에는 게임 시간을 멈춤
   // 배속: 게임 시간 = 실제 시간 x 배속 (프레임당 최대 1초 x 배속)
   acc += Math.min(dt, 1) * game.speed();
   let n = 0;

@@ -1357,13 +1357,13 @@ const spText = (sp) => Object.entries(sp || {}).filter(([k]) => SPN_ML[k] && sp[
 
 // ====================== 박물관: 모든 전리품 기증 (조금씩 능력치) ======================
 // 아이템 종류별로 오르는 능력치 · 기증 개수 1 / 10 / 100 / 1,000 / 10,000 개마다 한 단계
-const MU_FAM = { log: 'rngPct', ore: 'atkPct', bar: 'strPct', gem: 'magPct', cloth: 'magPct', hide: 'defPct', bone: 'defPct', raw: 'heal', food: 'heal', herb: 'drop', nest: 'drop', gembag: 'drop', chest: 'drop', sstone: 'bossDmg' };
+const MU_FAM = { log: 'rngPct', ore: 'atkPct', bar: 'strPct', gem: 'magPct', cloth: 'magPct', hide: 'defPct', raw: 'heal', food: 'heal', herb: 'drop', nest: 'drop', gembag: 'drop', chest: 'drop', sstone: 'bossDmg' };
 const MU_STEPS = [1, 10, 100, 1000, 10000];
 const MU_CAP = { heal: 0.5 };
 const MU_CAP_DEF = 0.25;
 const muFam = (id) => { const m = /^([a-z]+)(\d+)$/.exec(id); return m && MU_FAM[m[1]] && ITEMS[id] ? { k: MU_FAM[m[1]], t: +m[2] } : null; };
 const muLevel = (n) => MU_STEPS.filter((x) => (n || 0) >= x).length;
-const muPer = (t) => 0.0004 * (1 + 0.2 * t); // 한 단계당
+const muPer = (t) => 0.00043 * (1 + 0.2 * t); // 한 단계당 (신성용 뼈를 빼면서 나머지를 조금 올림)
 P.museumLootBonus = function () {
   const tot = {};
   for (const [id, n] of Object.entries(this.s.museumLoot || {})) {
@@ -1408,7 +1408,7 @@ U.museumLootCard = function (p) {
   const list = g.lootDonatable().sort((a, c) => (ITEMS[c].t || 0) - (ITEMS[a].t || 0));
   const done = Object.keys(s.museumLoot || {}).length;
   const c = h('div', 'card', `<b>🏛️ 전리품 전시실</b> <span class="mut">기증 ${done}종</span>
-    <div class="mut">재료 · 뼈 · 음식 · 약초 · 상자 같은 모든 전리품을 기증할 수 있습니다. 아이템마다 1 / 10 / 100 / 1,000 / 10,000개를 기증할 때마다 능력치가 조금씩 오릅니다 (높은 단계일수록 큼) · 목재=원거리 · 광석=공격 · 주괴=힘 · 보석 · 마력 천=마법 · 가죽 · 뼈=방어 · 생선 · 음식=음식 회복 · 약초 · 상자=드롭률 · 소환석=보스 피해</div>
+    <div class="mut">재료 · 음식 · 약초 · 상자 같은 전리품을 기증할 수 있습니다 (뼈는 신성에 쓰여서 제외). 아이템마다 1 / 10 / 100 / 1,000 / 10,000개를 기증할 때마다 능력치가 조금씩 오릅니다 (높은 단계일수록 큼) · 목재=원거리 · 광석=공격 · 주괴=힘 · 보석 · 마력 천=마법 · 가죽=방어 · 생선 · 음식=음식 회복 · 약초 · 상자=드롭률 · 소환석=보스 피해</div>
     <div style="margin-top:6px">보너스: <span class="sp">${spText(b) || '없음'}</span></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><button class="btn pri dal"${list.length ? '' : ' disabled'}>🏛️ 전리품 한꺼번에 기증 (${list.length}종)</button>
     <label class="tg"><input type="checkbox" class="ald"${s.autoLootDonate ? ' checked' : ''}> 전리품 자동 기증</label></div>
@@ -1510,4 +1510,14 @@ P.startSkill = function (skill, actId) {
   const a = (ACTIONS[skill] || []).find((x) => x.id === actId);
   if (this.s.autoDecomp && a?.in && !this.hasInputs(a) && this.canFill(a.in)) this.fillFor(a.in, true);
   return _startSkillD.call(this, skill, actId);
+};
+
+// 박물관에 이미 기증한 뼈는 가방으로 돌려줌 (뼈는 신성에 씀)
+const _townInitMB = P.townInit;
+P.townInit = function () {
+  _townInitMB.call(this);
+  const s = this.s;
+  if (s.muBoneV === 1) return;
+  for (const [id, n] of Object.entries(s.museumLoot || {})) if (/^bone\d+$/.test(id)) { this.give(id, n); delete s.museumLoot[id]; }
+  s.muBoneV = 1;
 };
