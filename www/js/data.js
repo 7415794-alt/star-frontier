@@ -65,11 +65,12 @@ export const CAPS = { ls: 0.3, dr: 0.6 };
 // ---------- 기도 · 펫 보너스 (스탯 7종만: 공격 · 힘 · 방어 · 원거리 · 마법 %, 흡수 · 피해 감소) ----------
 export const SPECIAL_NAMES = {
   atkPct: '공격', strPct: '힘', defPct: '방어', rngPct: '원거리', magPct: '마법', ls: '생명력 흡수', dr: '피해 감소',
+  atkFlat: '공격', strFlat: '힘', defFlat: '방어', rngFlat: '원거리', magFlat: '마법',
   gspd: '채집 속도', gxp: '채집 경험치', cspd: '제작 속도', pspd: '생산 속도', mxp: '제작 · 생산 경험치', heal: '음식 회복량', burn: '음식 안 태울 확률',
   drop: '드롭률', hpTick: '체력 재생 (3초마다)', thief: '도둑질 성공률', bossDmg: '보스 피해', sxp: '생활 경험치', dxp: '신성 경험치',
 };
 // 값이 % 가 아닌 보너스 (틱당 회복은 고정 수치)
-export const FLAT_SP = new Set(['hpTick']);
+export const FLAT_SP = new Set(['hpTick', 'atkFlat', 'strFlat', 'defFlat', 'rngFlat', 'magFlat']);
 export const COMBAT_TICK = 3; // 체력 재생(hpTick)이 들어가는 주기 (초)
 // 사냥꾼 숙련: 같은 몬스터를 잡은 수에 따라 그 몬스터 상대로 보너스 (단계마다 드롭률 +2% · 피해 +2% · 방어 +1.6%)
 export const HUNT_TIERS = [25, 100, 300, 1000, 3000];
@@ -514,15 +515,17 @@ export const PETS = [
   { id: 'phoenix', name: '아기 불사조', icon: '🐦‍🔥', src: 'event', p: 0, price: 4000, fx: { hpTick: 20, ls: 0.015, bossDmg: 0.1 } },
 ];
 // 중간 지역 보스마다 희귀 펫 (능력치 1~2개 · 높은 지역일수록 조금 더 · 확률은 보스 레벨이 높을수록 낮음)
-const ZPET_FX = [['atkPct'], ['strPct'], ['defPct'], ['rngPct'], ['magPct'], ['drop'], ['gspd', 'pspd'], ['bossDmg'], ['heal'], ['hpTick'], ['ls'], ['dr']];
+const ZPET_FX = [['atkFlat'], ['strFlat'], ['defFlat'], ['rngFlat'], ['magFlat'], ['drop'], ['gspd', 'pspd'], ['bossDmg'], ['heal'], ['hpTick'], ['ls'], ['dr']];
 const ZPET_PRE = ['아기', '꼬마', '새끼', '어린', '작은'];
+// 공격 · 힘 · 방어 · 원거리 · 마법은 고정 수치 (보스 레벨 기준으로 정해지고 그 뒤로는 그대로)
+const zpFlat = (key, L, t) => Math.round((0.025 + 0.002 * t) * refDef(L) * (key === 'defFlat' ? 1.5 : 1));
 const zpVal = (key, t) => (key === 'hpTick' ? 4 + t : key === 'ls' || key === 'dr' ? 0.004 + 0.0004 * t : key === 'heal' ? 0.05 + 0.005 * t : 0.025 + 0.002 * t);
 ZONES.forEach((z) => {
   if (PETS.some((x) => x.src === 'boss:' + z.z)) return; // 이미 펫이 있는 보스(처음 9지역)
   const b = z.mons[3], k = +String(z.z).slice(1);
   const keys = ZPET_FX[k % ZPET_FX.length];
   PETS.push({ id: 'zp_' + z.z, name: `${z.n.split(' ')[0]} ${ZPET_PRE[k % ZPET_PRE.length]} ${b.name.split(' ').pop()}`, icon: b.icon, src: 'boss:' + z.z, p: 1 / Math.round(160 + 3 * b.lvl),
-    fx: Object.fromEntries(keys.map((x) => [x, Math.round(zpVal(x, z.t) * 10000) / 10000])) });
+    fx: Object.fromEntries(keys.map((x) => [x, /Flat$/.test(x) ? zpFlat(x, b.lvl, z.t) : Math.round(zpVal(x, z.t) * 10000) / 10000])) });
 });
 export const PET = Object.fromEntries(PETS.map((p) => [p.id, p]));
 

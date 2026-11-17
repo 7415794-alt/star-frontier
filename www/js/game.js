@@ -55,7 +55,8 @@ export const C = {
   eff: (p, k) => {
     const b = p.lv[k] + (p.st[k] || 0);
     const pc = p.sp[k + 'Pct'] || 0, mn = p.sp[k + 'Min'] || 0; // 물약: % 와 최소 보장치 중 큰 값
-    return b + (pc || mn ? Math.max(b * pc, mn) : 0);
+    // 고정 수치(Flat)는 % 를 받지 않고 그대로 더함 → 후반 뻥튀기 없음
+    return b + (pc || mn ? Math.max(b * pc, mn) : 0) + (p.sp[k + 'Flat'] || 0);
   },
   // 피해 배율: 보스 피해 · 사냥꾼 숙련
   dmgMult: (p, m) => (1 + (m?.boss ? p.sp.bossDmg || 0 : 0)) * (1 + C.hunt(p, m).dmg),

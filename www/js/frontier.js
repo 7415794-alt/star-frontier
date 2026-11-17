@@ -1357,20 +1357,22 @@ const spText = (sp) => Object.entries(sp || {}).filter(([k]) => SPN_ML[k] && sp[
 
 // ====================== 박물관: 모든 전리품 기증 (조금씩 능력치) ======================
 // 아이템 종류별로 오르는 능력치 · 기증 개수 1 / 10 / 100 / 1,000 / 10,000 개마다 한 단계
-const MU_FAM = { log: 'rngPct', ore: 'atkPct', bar: 'strPct', gem: 'magPct', cloth: 'magPct', hide: 'defPct', raw: 'heal', food: 'heal', herb: 'drop', nest: 'drop', gembag: 'drop', chest: 'drop', sstone: 'bossDmg' };
+const MU_FAM = { log: 'rngFlat', ore: 'atkFlat', bar: 'strFlat', gem: 'magFlat', cloth: 'magFlat', hide: 'defFlat', raw: 'heal', food: 'heal', herb: 'drop', nest: 'drop', gembag: 'drop', chest: 'drop', sstone: 'bossDmg' };
 const MU_STEPS = [1, 10, 100, 1000, 10000];
 const MU_CAP = { heal: 0.5 };
 const MU_CAP_DEF = 0.25;
 const muFam = (id) => { const m = /^([a-z]+)(\d+)$/.exec(id); return m && MU_FAM[m[1]] && ITEMS[id] ? { k: MU_FAM[m[1]], t: +m[2] } : null; };
 const muLevel = (n) => MU_STEPS.filter((x) => (n || 0) >= x).length;
-const muPer = (t) => 0.00043 * (1 + 0.2 * t); // 한 단계당 (신성용 뼈를 빼면서 나머지를 조금 올림)
+const muPerPct = (t) => 0.00043 * (1 + 0.2 * t);
+// 한 단계당: 공격 · 힘 · 방어 · 원거리 · 마법은 고정 수치 (높은 등급일수록 큼), 나머지는 %
+const muPer = (t, k) => (/Flat$/.test(k) ? Math.round((1 + 0.6 * t) * (k === 'defFlat' ? 1.5 : 1)) : muPerPct(t));
 P.museumLootBonus = function () {
   const tot = {};
   for (const [id, n] of Object.entries(this.s.museumLoot || {})) {
     const f = muFam(id);
-    if (f) tot[f.k] = (tot[f.k] || 0) + muLevel(n) * muPer(f.t);
+    if (f) tot[f.k] = (tot[f.k] || 0) + muLevel(n) * muPer(f.t, f.k);
   }
-  for (const k of Object.keys(tot)) tot[k] = Math.min(MU_CAP[k] ?? MU_CAP_DEF, Math.round(tot[k] * 10000) / 10000);
+  for (const k of Object.keys(tot)) if (!/Flat$/.test(k)) tot[k] = Math.min(MU_CAP[k] ?? MU_CAP_DEF, Math.round(tot[k] * 10000) / 10000);
   return tot;
 };
 const _extraML = P.extraSources;
@@ -1418,7 +1420,7 @@ U.museumLootCard = function (p) {
   p.appendChild(c);
   for (const id of list.slice(0, 20)) {
     const it = ITEMS[id], f = muFam(id), n = s.museumLoot?.[id] || 0;
-    const r = h('div', 'row', `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name} <span class="mut">보유 ${fmt(g.have(id))}</span></div><div class="mut">기증 ${fmt(n)}개 · ${muLevel(n)} / ${MU_STEPS.length}단계 · 다음 단계까지 ${fmt(g.muNeed(id))}개 · ${spText({ [f.k]: muPer(f.t) })} / 단계</div></div><button class="btn sm pri">기증</button>`);
+    const r = h('div', 'row', `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name} <span class="mut">보유 ${fmt(g.have(id))}</span></div><div class="mut">기증 ${fmt(n)}개 · ${muLevel(n)} / ${MU_STEPS.length}단계 · 다음 단계까지 ${fmt(g.muNeed(id))}개 · ${spText({ [f.k]: muPer(f.t, f.k) })} / 단계</div></div><button class="btn sm pri">기증</button>`);
     r.querySelector('button').addEventListener('click', () => g.donateLoot(id));
     p.appendChild(r);
   }
