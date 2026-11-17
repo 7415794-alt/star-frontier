@@ -162,3 +162,11 @@ details.gslot .row { background: transparent; border-width: 0; border-top: 1px s
 .up { color: #4ade80; font-weight: 700; }
 .dn { color: #f87171; }
 details.card > summary { cursor: pointer; }
+/* 업적 · 펫 레벨 */
+.bar.sm { height: 6px; }
+.achcat button { min-width: 0; flex: 1 1 30%; font-size: 12px; padding: 6px 2px; }
+.achcat button small { display: block; color: var(--mut); font-size: 10px; }
+.grade { font-size: 10px; color: #ffd84d; letter-spacing: -1px; }
+.grade.g5, .grade.g6 { color: #ff9f43; }
+.row.ach.on { opacity: .85; }
+.plv { font-size: 11px; color: #ffd84d; border: 1px solid #ffd84d55; border-radius: 6px; padding: 0 4px; }

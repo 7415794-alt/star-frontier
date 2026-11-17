@@ -543,11 +543,11 @@ export class UI {
   // ---------- 펫 ----------
   tabPets(p) {
     const g = this.g, s = g.s;
-    p.appendChild(h('div', 'card', `펫 ${s.pets.length} / ${PETS.length} · <span class="mut">가진 펫은 모두 상시 적용됩니다</span><div><b>합계</b> <span class="sp">${spText(sumFx(s.pets.map((id) => PETS.find((x) => x.id === id)?.fx))) || '없음'}</span></div>`));
+    p.appendChild(h('div', 'card', `펫 ${s.pets.length} / ${PETS.length} · <span class="mut">가진 펫은 모두 상시 적용 · 같은 펫을 또 얻으면 레벨 업 (최대 Lv ${g.PET_MAX || 10} · 레벨마다 효과 +12%)</span><div><b>합계</b> <span class="sp">${spText(sumFx(s.pets.map((id) => (g.petFx ? g.petFx(id) : PETS.find((x) => x.id === id)?.fx)))) || '없음'}</span></div>`));
     for (const pet of [...PETS].sort((a, b) => s.favPet.includes(b.id) - s.favPet.includes(a.id))) {
       const own = s.pets.includes(pet.id);
       const src = pet.srcText ? pet.srcText : pet.src.startsWith('boss:') ? `${MONSTER_OF('m' + pet.src.slice(5) + '_3')?.name} 처치 · 확률 1/${Math.round(1 / pet.p)}` : pet.src === 'event' ? '🎉 별빛 축제 상점' : `${SKILL[pet.src].name} 행동 · 확률 1/${Math.round(1 / pet.p)}`;
-      const r = h('div', 'row' + (own ? ' on' : ' lock'), `<div class="ic">${own ? pet.icon : '❔'}</div><div class="info"><div class="nm">${own ? pet.name : '???'}</div><div class="mut">${src}</div><div class="mut sp">★ ${spText(pet.fx)}</div></div><span class="${own ? 'ok' : 'mut'} nw">${own ? '✅ 적용 중' : '미획득'}</span>`);
+      const r = h('div', 'row' + (own ? ' on' : ' lock'), `<div class="ic">${own ? pet.icon : '❔'}</div><div class="info"><div class="nm">${own ? `${pet.name} <span class="plv">Lv ${g.petLv(pet.id)}</span>` : '???'}</div><div class="mut">${src}</div><div class="mut sp">★ ${spText(own ? g.petFx(pet.id) : pet.fx)}</div></div><span class="${own ? 'ok' : 'mut'} nw">${own ? (g.petLv(pet.id) >= (g.PET_MAX || 10) ? '👑 최대' : '✅ 적용 중') : '미획득'}</span>`);
       if (own) { r.style.cursor = 'pointer'; r.title = '눌러서 화면에 함께 다니는 펫으로'; r.addEventListener('click', () => { s.pet = pet.id; }); }
       p.appendChild(r);
     }

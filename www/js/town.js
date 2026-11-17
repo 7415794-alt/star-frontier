@@ -224,7 +224,8 @@ P.kill = function (m) {
 P.festTier = function () { return Math.max(0, ...ZONES.filter((z) => this.combatLevel() + 5 >= z.lvl).map((z) => z.t)); };
 P.festBuy = function (x) {
   if ((this.s.candy || 0) < x.price) return false;
-  if (x.pet) { const pt = PET[x.pet]; if (!pt || this.s.pets.includes(pt.id)) return false; this.s.pets.push(pt.id); if (!this.s.pet) this.s.pet = pt.id; this.dirty(); this.toast(`🐾 펫 획득! ${pt.icon} ${pt.name}`, 'pet'); }
+  if (x.pet && this.s.pets.includes(x.pet)) { if (!this.petUp?.(PET[x.pet])) return false; } // 이미 있으면 레벨 업
+  else if (x.pet) { const pt = PET[x.pet]; if (!pt) return false; this.s.pets.push(pt.id); if (!this.s.pet) this.s.pet = pt.id; this.dirty(); this.toast(`🐾 펫 획득! ${pt.icon} ${pt.name}`, 'pet'); }
   else if (ITEMS[x.id]) this.give(x.id, x.n || 1);
   else return false;
   this.s.candy -= x.price;
@@ -337,9 +338,10 @@ function townFest(ui, p, g, s) {
     if (x.g !== grp) { grp = x.g; p.appendChild(h('div', 'h', grp)); }
     const pet = x.pet ? PET[x.pet] : null;
     const it = pet || ITEMS[x.id];
-    const owned = pet && s.pets.includes(pet.id);
-    const info = pet ? spText(pet.fx) : `x${fmt(x.n)}${it.kind === 'potion' ? ' · ' + spText(it.fx) : ''}`;
-    const r = h('div', 'row' + (owned ? ' lock' : ''), `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name}</div><div class="mut sp">${info}</div></div><button class="btn sm pri"${!owned && (s.candy || 0) >= x.price ? '' : ' disabled'}>${owned ? '보유' : `🍬 ${fmt(x.price)}`}</button>`);
+    const plv = pet && s.pets.includes(pet.id) ? g.petLv(pet.id) : 0;
+    const owned = plv >= (g.PET_MAX || 10);
+    const info = pet ? (plv ? `Lv ${plv} → ${plv + 1} · ` : '') + spText(plv ? g.petFx(pet.id, plv + 1) : pet.fx) : `x${fmt(x.n)}${it.kind === 'potion' ? ' · ' + spText(it.fx) : ''}`;
+    const r = h('div', 'row' + (owned ? ' lock' : ''), `<div class="ic">${it.icon}</div><div class="info"><div class="nm">${it.name}</div><div class="mut sp">${info}</div></div><button class="btn sm pri"${!owned && (s.candy || 0) >= x.price ? '' : ' disabled'}>${owned ? '최대 레벨' : `${plv ? '⬆ ' : ''}🍬 ${fmt(x.price)}`}</button>`);
     r.querySelector('button').addEventListener('click', () => g.festBuy(x));
     p.appendChild(r);
   }

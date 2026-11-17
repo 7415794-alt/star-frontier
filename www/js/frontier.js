@@ -832,6 +832,7 @@ P.rqClaim = function (q) {
   else if (rw.pet) {
     const left = QUEST_PETS().filter((x) => !s.pets.includes(x.id));
     if (left.length && Math.random() < rw.pet) { const pt = pick(left); s.pets.push(pt.id); if (!s.pet) s.pet = pt.id; this.dirty(); got = `🐾 ${pt.icon} ${pt.name}!`; this.celebrate(`🐾 ${pt.name}`); }
+    else if (!left.length && Math.random() < rw.pet && this.petUp?.(pick(QUEST_PETS()), true)) got = '🐾 의뢰 펫 레벨 업!';
     else got = gearOf(pick(Object.keys(GEAR)) + q.t, 4);
   } else if (rw.tome) {
     const left = TOMES.filter((tm) => !s.tomes.includes(tm.pr));
@@ -1959,3 +1960,210 @@ U.townExtra = [...U.townExtra, ['star', '⭐ 강화']];
 U.townFns.star = townStar;
 const _sigSF = U.sigX;
 U.sigX = function () { const f = this.g.s.sf; return [..._sigSF.call(this), f ? JSON.stringify(f.st) : '', f?.auto, f?.tries, f?.prot, f?.target, f?.slot, f?.reserve]; };
+
+// ====================== 🐾 펫 레벨: 같은 펫을 또 얻으면 레벨 업 (최대 10 · 레벨마다 효과 +12%) ======================
+import { SKILLS as SKILLS_A, RARITY as RARITY_A, PET as PET_A, SPECIAL_NAMES as SPN_A, FLAT_SP as FSP_A, huntTier as huntTier_A } from './data.js';
+const PET_MAX = 10;
+P.PET_MAX = PET_MAX;
+const petMult = (lv) => 1 + 0.12 * (Math.max(1, lv) - 1);
+P.petLv = function (id) { return this.s.pets.includes(id) ? Math.min(PET_MAX, this.s.petLv?.[id] || 1) : 0; };
+P.petFx = function (id, lv) {
+  const pet = PET_A[id];
+  if (!pet) return {};
+  const m = petMult(lv ?? this.petLv(id));
+  const o = {};
+  for (const [k, v] of Object.entries(pet.fx || {})) o[k] = FSP_A.has(k) ? Math.round(v * m) : Math.round(v * m * 10000) / 10000;
+  return o;
+};
+P.petUp = function (pet, quiet = false) {
+  if (!pet || !this.s.pets.includes(pet.id)) return false;
+  const lv = this.petLv(pet.id);
+  if (lv >= PET_MAX) return false;
+  this.s.petLv = { ...(this.s.petLv || {}), [pet.id]: lv + 1 };
+  this.dirty();
+  if (!quiet || lv + 1 >= 5) this.toast(`🐾 펫 레벨 업! ${pet.icon} ${pet.name} Lv ${lv + 1}`, 'pet');
+  if (lv + 1 === PET_MAX && this.s.cele !== false) this.celebrate(`👑 ${pet.icon} ${pet.name} 최대 레벨!`);
+  return true;
+};
+// 이미 가진 펫이 또 나오면 → 레벨 업 (호루라기 보너스도 적용)
+const _tryPetLv = P.tryPet;
+P.tryPet = function (pet, mul = 1) {
+  if (!this.s.pets.includes(pet.id)) return _tryPetLv.call(this, pet, mul);
+  if ((this.s.whistle || 0) > 0 && /boss/.test(pet.src)) mul *= 1 + WHISTLE_PET;
+  if (this.petLv(pet.id) < PET_MAX && Math.random() < pet.p * mul) this.petUp(pet);
+};
+
+// ====================== 🏆 업적: 목표를 이루면 고정 능력치 영구 보상 ======================
+const ACH_V = [2, 4, 8, 16, 32, 64, 128]; // 등급별 보상 크기
+const ACH_ST = ['atk', 'str', 'def', 'rng', 'mag'];
+const ACH_CATS = { fight: '⚔️ 전투', boss: '👑 정복', lvl: '📈 성장', col: '📚 수집', gear: '🛡️ 장비', pet: '🐾 펫', chal: '🗼 도전', life: '🌱 생활', fun: '🎲 재미' };
+export const ACHS = [];
+const add = (cat, id, icon, name, desc, grade, fn) => ACHS.push({ cat, id, icon, name, desc, grade: Math.min(6, grade), fn });
+const ladder = (cat, id, icon, names, desc, steps, fn, g0 = 0) => steps.forEach((n, i) => add(cat, `${id}_${n}`, icon, names[i] || `${names[names.length - 1]} ${i + 1}`, desc(n), g0 + i, (g) => [fn(g), n]));
+const famT = (g, fam) => { let n = 0; for (let t = 0; t < TIERS.length; t++) if ((g.s.log.got?.[fam + t] || 0) > 0 || g.have(fam + t) > 0) n++; return n; };
+const gearT = (g, ty) => { const b = g._achGear(); let n = 0; for (let t = 0; t < TIERS.length; t++) if (b.has(ty + t)) n++; return n; };
+P._achGear = function () {
+  const keys = Object.keys(this.s.log.gear || {});
+  if (this._agK === keys.length) return this._agS;
+  const st = new Set();
+  for (const id of keys) st.add(id.replace(/_r\d+$/, ''));
+  for (const id of Object.keys(this.s.bank)) if (ITEMS[id]?.kind === 'gear') st.add(ITEMS[id].base);
+  for (const id of Object.values(this.s.equip)) if (ITEMS[id]) st.add(ITEMS[id].base);
+  this._agK = keys.length; this._agS = st;
+  return st;
+};
+const maxRar = (g) => { let r = 0; for (const id of [...Object.keys(g.s.log.gear || {}), ...Object.values(g.s.equip)]) r = Math.max(r, ITEMS[id]?.r || 0); return r; };
+const totalLv = (g) => SKILLS_A.reduce((a, k) => a + g.lvl(k.id), 0);
+
+// ⚔️ 전투
+ladder('fight', 'kill', '🗡️', ['첫 사냥', '사냥꾼 입문', '백전노장', '만인 처치', '전설의 학살자', '백만 대군 섬멸'], (n) => `몬스터 ${fmt(n)}마리 처치`, [10, 100, 1000, 10000, 100000, 1000000], (g) => g.s.stats.kills || 0);
+ladder('fight', 'boss', '👑', ['보스 사냥 입문', '보스 킬러', '보스 수집가', '보스의 악몽', '보스 학살자'], (n) => `보스 ${fmt(n)}번 처치`, [1, 10, 100, 1000, 10000], (g) => g.s.log.bossKills || 0);
+ladder('fight', 'one', '🎯', ['단골손님', '천적', '멸종 위기'], (n) => `같은 몬스터 하나를 ${fmt(n)}번 처치`, [100, 1000, 10000], (g) => Math.max(0, ...Object.values(g.s.kills || {})), 1);
+ladder('fight', 'hunt', '🏹', ['전설의 사냥꾼', '사냥터의 왕', '모든 숲의 주인'], (n) => `사냥꾼 숙련 최고 단계 몬스터 ${n}종`, [1, 10, 50], (g) => Object.values(g.s.kills || {}).filter((k) => huntTier_A(k) >= 5).length, 2);
+ladder('fight', 'dead', '💀', ['다시 일어나라', '넘어져도 괜찮아', '불사조', '죽음과 친구'], (n) => `${fmt(n)}번 쓰러지기 (실패도 경험!)`, [1, 10, 100, 1000], (g) => g.s.stats.deaths || 0);
+ladder('fight', 'food', '🍖', ['간식 타임', '대식가', '먹방 유튜버', '위장이 우주'], (n) => `음식 ${fmt(n)}개 먹기`, [100, 1000, 10000, 100000], (g) => g.s.log.food || 0);
+// 👑 정복: 지역마다 보스 처치 + 레벨 구간마다 전부 처치
+for (const z of ZONES) {
+  const b = z.mons[3];
+  add('boss', 'zone_' + z.z, b.icon, `${z.n} 정복`, `${z.n}의 보스 ${b.name} 처치 (Lv ${b.lvl})`, Math.min(6, Math.floor(z.lvl / 40)), (g) => [g.s.kills?.[b.id] ? 1 : 0, 1]);
+  add('boss', 'zall_' + z.z, '🗺️', `${z.n} 소탕`, `${z.n}의 몬스터 4종 모두 처치`, Math.min(6, Math.floor(z.lvl / 50)), (g) => [z.mons.filter((m) => g.s.kills?.[m.id]).length, 4]);
+}
+[25, 50, 75, 100, 125, 150, 175, 200, 230].forEach((L, i) => {
+  const zs = ZONES.filter((z) => z.lvl <= L);
+  add('boss', 'zb_' + L, '🏆', `Lv ${L} 지역의 지배자`, `Lv ${L} 이하 지역 보스 ${zs.length}마리 전부 처치`, 1 + Math.floor(i * 0.7), (g) => [zs.filter((z) => g.s.kills?.[z.mons[3].id]).length, zs.length]);
+});
+// 📈 성장
+ladder('lvl', 'cl', '⚔️', ['견습 모험가', '모험가', '숙련 모험가', '베테랑', '영웅', '전설', '신화', '별의 수호자', '개척의 끝'], (n) => `전투 레벨 ${n} 달성`, [10, 25, 50, 75, 100, 125, 150, 175, 200], (g) => g.combatLevel());
+for (const k of SKILLS_A) ladder('lvl', 'sk_' + k.id, k.icon, [`${k.name} 입문`, `${k.name} 숙련`, `${k.name} 달인`, `${k.name} 장인`, `${k.name} 대가`, `${k.name}의 신`], (n) => `${k.name} 레벨 ${n}`, [25, 50, 75, 100, 150, 200], (g) => g.lvl(k.id));
+ladder('lvl', 'tot', '📊', ['다재다능', '만능 재주꾼', '르네상스인', '모든 것의 달인'], (n) => `모든 스킬 레벨 합 ${fmt(n)}`, [200, 600, 1200, 2400], (g) => totalLv(g), 1);
+// 📚 수집: 재료마다 등급 모으기
+const FAMS = [['log', '목재', '🪵'], ['ore', '광석', '🪨'], ['bar', '주괴', '🧱'], ['gem', '보석', '💎'], ['raw', '날생선', '🐟'], ['food', '요리', '🍲'], ['hide', '가죽', '🟫'], ['cloth', '마력 천', '🧵'], ['bone', '뼈', '🦴'], ['herb', '약초', '🌿'], ['nest', '새 둥지', '🪺'], ['gembag', '보석 주머니', '👝'], ['chest', '물속 상자', '🧰'], ['sstone', '소환석', '🔮']];
+for (const [fam, n, ic] of FAMS) {
+  add('col', 'fam5_' + fam, ic, `${n} 수집가`, `${n} 5등급 모으기`, 0, (g) => [famT(g, fam), 5]);
+  add('col', 'fam12_' + fam, ic, `${n} 박사`, `${n} 12등급 모으기`, 2, (g) => [famT(g, fam), 12]);
+  add('col', 'famall_' + fam, ic, `${n} 도감 완성`, `${n} 전 등급(${TIERS.length}) 모으기`, 4, (g) => [famT(g, fam), TIERS.length]);
+}
+for (const [ty, gd] of Object.entries(GEAR)) {
+  add('col', 'g7_' + ty, gd.icon, `${gd.name} 수집 시작`, `${gd.name} 7등급 모으기`, 1, (g) => [gearT(g, ty), 7]);
+  add('col', 'gall_' + ty, gd.icon, `${gd.name} 도감 완성`, `${gd.name} 전 등급(${TIERS.length}) 모으기`, 5, (g) => [gearT(g, ty), TIERS.length]);
+}
+ladder('col', 'gtypes', '📦', ['장비 수집 입문', '장비 창고', '장비 박물관', '모든 장비의 주인'], (n) => `서로 다른 장비 ${n}종 얻기`, [20, 100, 250, 480], (g) => g._achGear().size);
+ladder('col', 'mus', '🏛️', ['기증 첫걸음', '후원자', '박물관의 기둥', '박물관장'], (n) => `박물관 장비 ${n}종 기증`, [5, 30, 100, 300], (g) => Object.keys(g.s.museum || {}).length);
+ladder('col', 'mul', '🏺', ['전리품 기증', '전리품 전시', '전리품 대전시회'], (n) => `박물관 전리품 ${n}종 기증`, [10, 60, 200], (g) => Object.keys(g.s.museumLoot || {}).length, 1);
+// 🛡️ 장비
+RARITY_A.slice(1).forEach((R, i) => add('gear', 'rar_' + R.r, '🌟', `${R.n} 등급 손에 넣다`, `${R.n} 등급 장비 얻기`, Math.min(6, i), (g) => [maxRar(g) >= R.r ? 1 : 0, 1]));
+add('gear', 'full12', '🧍', '완전 무장', '장비 12칸 모두 착용', 1, (g) => [SLOT_IDS.filter((sl) => g.s.equip[sl]).length, SLOT_IDS.length]);
+[3, 5, 7].forEach((r, i) => add('gear', 'fullr_' + r, '✨', `온몸이 ${RARITY_A[r - 1].n}`, `장비 12칸 모두 ${RARITY_A[r - 1].n} 등급 이상`, 2 + i * 2, (g) => [SLOT_IDS.filter((sl) => (ITEMS[g.s.equip[sl]]?.r || 0) >= r).length, SLOT_IDS.length]));
+ladder('gear', 'pow', '💪', ['힘이 솟는다', '강자', '강호', '절대 강자', '무적', '초월자'], (n) => `전투력 ${fmt(n)} 달성`, [100, 500, 1000, 3000, 10000, 30000], (g) => g.power());
+ladder('gear', 'sf', '⭐', ['첫 별', '반짝반짝', '별빛 장인', '스타', '슈퍼스타', '은하수', '별 그 자체'], (n) => `한 부위 ${n}성 달성`, [5, 10, 15, 20, 22, 25, 30], (g) => Math.max(0, ...SLOT_IDS.map((sl) => g.sfStars?.(sl) || 0)));
+ladder('gear', 'sfall', '🌌', ['고르게 반짝', '빈틈없는 별', '별자리 완성', '온몸이 별'], (n) => `모든 부위 ${n}성 이상`, [5, 10, 15, 20], (g) => Math.min(...SLOT_IDS.map((sl) => g.sfStars?.(sl) || 0)), 1);
+ladder('gear', 'brk', '💥', ['펑!', '불꽃놀이', '파괴의 신', '아무도 나를 막을 수 없다'], (n) => `강화 파괴 ${fmt(n)}번 (눈물…)`, [1, 10, 100, 1000], (g) => g.s.sf?.breaks || 0);
+ladder('gear', 'sftry', '🔨', ['망치질', '두드리고 또 두드리고', '대장장이의 집념'], (n) => `강화 ${fmt(n)}번 시도`, [100, 1000, 10000], (g) => g.s.sf?.tries || 0);
+// 🐾 펫
+ladder('pet', 'pets', '🐾', ['첫 친구', '작은 동물원', '펫 부자', '동물의 왕국', '노아의 방주'], (n) => `펫 ${n}마리 모으기`, [1, 5, 15, 35, PETS.length], (g) => g.s.pets.length);
+ladder('pet', 'plv', '🍖', ['무럭무럭', '든든한 동료', '전설의 펫'], (n) => `펫 하나를 Lv ${n}까지`, [3, 5, 10], (g) => Math.max(0, ...g.s.pets.map((id) => g.petLv(id))), 1);
+ladder('pet', 'plv10', '👑', ['최강 콤비', '최강 군단', '펫 마스터'], (n) => `Lv 10 펫 ${n}마리`, [1, 5, 20], (g) => g.s.pets.filter((id) => g.petLv(id) >= PET_MAX).length, 3);
+add('pet', 'zpets', '🐲', '보스의 아기들', '지역 보스 펫 모두 모으기', 6, (g) => { const l = PETS.filter((x) => x.src.startsWith('boss:')); return [l.filter((x) => g.s.pets.includes(x.id)).length, l.length]; });
+// 🗼 도전
+ladder('chal', 'tw', '🗼', ['탑 오르기', '높은 곳', '구름 위', '하늘 끝', '성층권', '별에 닿다', '탑의 주인'], (n) => `별의 탑 ${n}층 돌파`, [10, 20, 30, 50, 75, 100, 150], (g) => g.s.tw?.best || 0);
+ladder('chal', 'wb', '🐋', ['고래 사냥', '고래잡이', '고래의 천적', '바다의 지배자'], (n) => `세계 보스 ${n}번 도전`, [1, 10, 50, 200], (g) => g.s.wb?.runs || 0);
+ladder('chal', 'sb', '🌳', ['스킬 보스 격파', '스킬 보스 사냥꾼', '스킬 보스의 재앙'], (n) => `스킬 보스 ${n}번 격파`, [1, 10, 100], (g) => Object.values(g.s.sbWins || {}).reduce((a, b) => a + b, 0), 1);
+ladder('chal', 'rq', '📜', ['심부름꾼', '해결사', '마을의 영웅', '의뢰의 전설'], (n) => `의뢰 ${fmt(n)}개 완료`, [10, 100, 1000, 10000], (g) => g.s.rq?.done || 0);
+// 🌱 생활
+ladder('life', 'act', '⚙️', ['부지런한 손', '일벌레', '멈추지 않는 기계'], (n) => `스킬 행동 ${fmt(n)}번`, [1000, 100000, 1000000], (g) => g.s.stats.actions || 0);
+ladder('life', 'tool', '🧰', ['도구 장만', '좋은 도구', '명품 도구', '전설의 도구'], (n) => `모든 도구 ${n}단계 이상`, [3, 7, 14, 21], (g) => Math.min(...Object.keys(TOOLS).map((sk) => (ITEMS[g.s.tools?.[sk]]?.t ?? -1) + 1)), 1);
+ladder('life', 'pray', '🙏', ['기도의 시작', '경건한 자', '성자', '신의 대리인'], (n) => `기도 ${n}개 열기`, [5, 12, 20, PRAYERS.length], (g) => g.openPrayers().length);
+ladder('life', 'coin', '💰', ['용돈', '부자', '재벌', '황금 산', '화폐 그 자체'], (n) => `골드 ${fmt(n)} 모으기 (가진 골드)`, [10000, 1000000, 100000000, 10000000000, 1000000000000], (g) => g.s.coins || 0);
+ladder('life', 'time', '⏳', ['한 시간의 여행', '하루 종일', '진정한 개척자', '시간의 방랑자'], (n) => `게임 시간 ${fmt(n)}시간`, [1, 24, 100, 1000], (g) => (g.s.log.time || 0) / 3600);
+// 🎲 재미
+ladder('fun', 'cp', '🎟', ['쿠폰 맛보기', '쿠폰 수집가', '쿠폰의 노예'], (n) => `쿠폰 ${fmt(n)}번 사용`, [1, 10, 100], (g) => g.s.cpUsed || 0);
+add('fun', 'broke', '🪙', '빈털터리', '골드가 100 미만이 되기 (강화를 너무 했나?)', 0, (g) => [(g.s.coins || 0) < 100 ? 1 : 0, 1]);
+add('fun', 'nofood', '🥲', '배고픈 모험가', '음식 없이 전투하기 (가방에 음식 0개)', 0, (g) => [g.s.hunt && !Object.keys(g.s.bank).some((id) => ITEMS[id]?.kind === 'food') ? 1 : 0, 1]);
+add('fun', 'naked', '🩲', '맨몸의 용사', '장비 하나도 없이 전투하기', 0, (g) => [g.s.hunt && !SLOT_IDS.some((sl) => g.s.equip[sl]) ? 1 : 0, 1]);
+add('fun', 'chance', '🎯', '찬스 타임!', '강화 찬스 타임 성공', 1, (g) => [g.s.sf?.log?.some((x) => x.res === 'chance') || g.s.achFlags?.chance ? 1 : 0, 1]);
+add('fun', 'all3', '🔀', '삼위일체', '근접 · 원거리 · 마법 모두 레벨 50', 2, (g) => [[Math.min(g.lvl('atk'), g.lvl('str')), g.lvl('rng'), g.lvl('mag')].filter((x) => x >= 50).length, 3]);
+add('fun', 'ach50', '🏅', '업적 사냥꾼', '업적 50개 달성', 2, (g) => [Object.keys(g.s.ach || {}).length, 50]);
+add('fun', 'ach150', '🎖️', '업적 수집광', '업적 150개 달성', 4, (g) => [Object.keys(g.s.ach || {}).length, 150]);
+add('fun', 'ach300', '🏆', '완벽주의자', '업적 300개 달성', 6, (g) => [Object.keys(g.s.ach || {}).length, 300]);
+// 보상: 공격 → 힘 → 방어 → 원거리 → 마법 순서로 고정 수치 (방어는 1.5배)
+ACHS.forEach((a, i) => { const k = ACH_ST[i % 5]; a.rw = { k: k + 'Flat', v: Math.round(ACH_V[a.grade] * (k === 'def' ? 1.5 : 1)) }; a.pts = (a.grade + 1) * 10; });
+const ACH_BY = Object.fromEntries(ACHS.map((a) => [a.id, a]));
+
+P.achBonus = function () {
+  const done = this.s.ach || {};
+  const n = Object.keys(done).length;
+  if (this._achB?.n === n) return this._achB.v;
+  const v = {};
+  for (const id of Object.keys(done)) { const a = ACH_BY[id]; if (a) v[a.rw.k] = (v[a.rw.k] || 0) + a.rw.v; }
+  this._achB = { n, v };
+  return v;
+};
+const _extraACH = P.extraSources;
+P.extraSources = function () { return [..._extraACH.call(this), this.achBonus()]; };
+P.achProg = function (a) { try { const [c, n] = a.fn(this); return { c: Number.isFinite(c) ? c : 0, n }; } catch (e) { return { c: 0, n: 1 }; } };
+P.achCheck = function () {
+  const s = this.s;
+  s.ach ||= {};
+  let got = 0;
+  for (const a of ACHS) {
+    if (s.ach[a.id]) continue;
+    const { c, n } = this.achProg(a);
+    if (c >= n) {
+      s.ach[a.id] = Date.now();
+      got++;
+      if (got <= 3) this.toast(`🏆 업적 달성! ${a.icon} ${a.name} · ${SPN_A[a.rw.k]} +${a.rw.v}`, 'pet');
+      if (a.grade >= 4 && this.s.cele !== false) this.celebrate(`🏆 ${a.name}`);
+    }
+  }
+  if (got > 3) this.toast(`🏆 업적 ${got}개 달성!`, 'pet');
+  if (got) this.dirty();
+  return got;
+};
+// 1.5초마다 (실제 시간) 확인
+const _updACH = P.update;
+P.update = function (dt) {
+  _updACH.call(this, dt);
+  const now = performance.now();
+  if (now - (this._achT || 0) > 1500) { this._achT = now; this.achCheck(); }
+};
+const _sfTryA = P.sfTry;
+P.sfTry = function (...a) { const r = _sfTryA.apply(this, a); if (r === 'chance') this.s.achFlags = { ...(this.s.achFlags || {}), chance: 1 }; return r; };
+
+// ---- 화면 ----
+function townAch(ui, p, g, s) {
+  s.ach ||= {};
+  const cat = ui.achCat || 'near';
+  const doneN = Object.keys(s.ach).length;
+  const pts = ACHS.filter((a) => s.ach[a.id]).reduce((x, a) => x + a.pts, 0);
+  const b = g.achBonus();
+  const bt = ACH_ST.filter((k) => b[k + 'Flat']).map((k) => `${STATS[k].name} +${fmt(b[k + 'Flat'])}`).join(', ');
+  p.appendChild(h('div', 'card', `<b>🏆 업적</b> <span class="mut">${doneN} / ${ACHS.length} 달성 · 업적 점수 ${fmt(pts)}</span>
+    <div class="bar" style="margin:6px 0"><div style="width:${pct(doneN / ACHS.length)}"></div></div>
+    <div>업적 보너스 (영구): <span class="sp">${bt || '없음'}</span></div>
+    <div class="mut">달성하면 바로 고정 능력치를 받습니다 (공격 → 힘 → 방어 → 원거리 → 마법 순서 · 어려운 업적일수록 큼)</div>`));
+  const seg = h('div', 'seg achcat');
+  for (const [k, n] of [['near', '🔥 거의 다'], ...Object.entries(ACH_CATS), ['done', '✅ 달성']]) {
+    const tot = k === 'near' || k === 'done' ? '' : ` ${ACHS.filter((a) => a.cat === k && s.ach[a.id]).length}/${ACHS.filter((a) => a.cat === k).length}`;
+    const bb = h('button', k === cat ? 'on' : '', `${n}<small>${tot}</small>`);
+    bb.addEventListener('click', () => { ui.achCat = k; ui.render(true); });
+    seg.appendChild(bb);
+  }
+  p.appendChild(seg);
+  let list;
+  if (cat === 'near') list = ACHS.filter((a) => !s.ach[a.id]).map((a) => ({ a, pr: g.achProg(a) })).map((x) => ({ ...x, f: Math.min(1, x.pr.c / x.pr.n) })).sort((x, y) => y.f - x.f || x.a.grade - y.a.grade).slice(0, 25);
+  else if (cat === 'done') list = ACHS.filter((a) => s.ach[a.id]).sort((x, y) => s.ach[y.id] - s.ach[x.id]).map((a) => ({ a, pr: g.achProg(a), f: 1 }));
+  else list = ACHS.filter((a) => a.cat === cat).map((a) => ({ a, pr: g.achProg(a) })).map((x) => ({ ...x, f: s.ach[x.a.id] ? 1 : Math.min(1, x.pr.c / x.pr.n) })).sort((x, y) => !!s.ach[x.a.id] - !!s.ach[y.a.id] || y.f - x.f);
+  if (!list.length) p.appendChild(h('div', 'card mut', '아직 없습니다'));
+  for (const { a, pr, f } of list) {
+    const ok = !!s.ach[a.id];
+    const prog = ok ? '✅ 달성' : `${fmt(Math.min(pr.c, pr.n))} / ${fmt(pr.n)}`;
+    const r = h('div', 'row ach' + (ok ? ' on' : ''), `<div class="ic">${a.icon}</div><div class="info"><div class="nm">${a.name} <span class="grade g${a.grade}">${'★'.repeat(a.grade + 1)}</span></div><div class="mut">${a.desc}</div>
+      <div class="bar sm"><div style="width:${pct(f)}"></div></div><div class="mut">${prog} · 보상 <span class="sp">${SPN_A[a.rw.k]} +${a.rw.v}</span></div></div>`);
+    p.appendChild(r);
+  }
+  if (cat === 'done' && list.length > 60) while (p.children.length > 63) p.lastElementChild.remove();
+}
+U.townExtra = [...U.townExtra, ['ach', '🏆 업적']];
+U.townFns.ach = townAch;
+const _sigACH = U.sigX;
+U.sigX = function () { const s = this.g.s; return [..._sigACH.call(this), Object.keys(s.ach || {}).length, this.town === 'ach' ? Math.floor((s.stats?.kills || 0) / 50) : 0]; };
