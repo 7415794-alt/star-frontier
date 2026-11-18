@@ -3100,3 +3100,78 @@ U.zonePetMark = function (z) {
   const lv = this.g.petLv(pet.id);
   return lv >= (this.g.PET_MAX || 10) ? ' 👑' : lv ? ` 🐾${lv}` : ' 🐾';
 };
+
+// ====================== 🎁 새 지역 보상: 21~25단계 장비 · 음식 ======================
+// 단계마다 그 묶음 시작 레벨에서 기존 장비보다 확실히 강하게 (플레이어 강함 비율 x1.5) · 묶음 안에서 레벨이 오를수록 다음 단계가 필요해짐
+export const XGEAR_T = [
+  { n: '성계', lvl: 240 }, { n: '심연', lvl: 450 }, { n: '시공', lvl: 900 }, { n: '태초', lvl: 2000 }, { n: '영겁', lvl: 5000 },
+].map((T, gi) => ({ ...T, t: 21 + gi, c: XTIERS[gi].c, v: Math.round(TIERS[20].v * 1.5 * xRatio(X_OFF, T.lvl, 200)), hp: Math.round(0.45 * xInterp(X_HP, T.lvl)) }));
+{
+  const GD = GEAR, RAR = RARITY_A;
+  XGEAR_T.forEach((T, gi) => {
+    const t = T.t;
+    for (const [type, g] of Object.entries(GD)) {
+      const st = {};
+      for (const [k, c] of Object.entries(g.s)) st[k] = Math.round(c * T.v);
+      for (const [k, c] of Object.entries(g.p || {})) st[k] = Math.round(c * (t + 1) * 1000) / 1000;
+      const matN = Object.values(g.mat).reduce((a, b) => a + b, 0), base = `${type}${t}`;
+      for (const R of RAR) {
+        const st2 = {};
+        for (const [k, v] of Object.entries(st)) st2[k] = STATS[k].pct ? Math.round(v * R.mult * 10000) / 10000 : Math.round(v * R.mult);
+        ITEMS[gearId(base, R.r)] = {
+          name: (R.r > 1 ? `[${R.n}] ` : '') + `${T.n} ${g.name}`, icon: g.icon, kind: 'gear', type, slot: g.slot, t, r: R.r, base, rc: R.c, xg: true,
+          style: g.style, req: [g.req, T.lvl], speed: g.speed, twoHand: !!g.twoHand, st: st2, sp: {}, value: Math.round(15 * (t + 1) ** 2 * matN * R.mult ** 2 * (T.lvl / 200)),
+        };
+      }
+    }
+    ITEMS['xfood' + gi] = { name: `${T.n} 별빛 만찬`, icon: '🍱', kind: 'food', t, heal: T.hp, value: Math.round(6 * (t + 1) ** 2 * (T.lvl / 200)) };
+  });
+  // 새 지역 전리품: 20단계 장비 → 그 지역 묶음 단계 장비, 음식도 그 단계로
+  const gOf = (L) => { let gi = 0; XGEAR_T.forEach((T, i) => { if (L >= T.lvl) gi = i; }); return gi; };
+  for (const z of ZONES.filter((x) => x.xz)) {
+    const gi = gOf(z.lvl), t = 21 + gi;
+    for (const m of z.mons) {
+      m.loot = m.loot.map((l) => {
+        const mm = /^([a-z]+)20$/.exec(l.id);
+        if (mm && GD[mm[1]]) return { ...l, id: `${mm[1]}${t}` };
+        if (/^food\d+$/.test(l.id)) return { ...l, id: 'xfood' + gi, p: Math.max(l.p, 0.1) };
+        return l;
+      });
+    }
+  }
+}
+
+// ====================== 렉 줄이기: 장비 비교 상태 키를 잠깐 기억 ======================
+// (장비 탭 한 번 그릴 때 수백 번 불림 · 장비가 바뀌면 s.equip 객체가 바뀌므로 바로 새로 계산)
+{
+  const _sk = P.stateKey;
+  P.stateKey = function () {
+    const now = performance.now(), c = this._skC;
+    if (c && c.eq === this.s.equip && c.pets === this.s.pets.length && now - c.t < 120) return c.v;
+    const v = _sk.call(this);
+    this._skC = { eq: this.s.equip, pets: this.s.pets.length, t: now, v };
+    return v;
+  };
+}
+// 약한 장비 판정: 같은 순간(같은 장비 · 0.12초 안)에는 기억해 둔 결과를 바로 씀
+{
+  const _wf = P.weakForAll;
+  P.weakForAll = function (id) {
+    const now = performance.now();
+    if (this._wfaMap && this._wfaEq === this.s.equip && now - this._wfaT < 120 && this._wfaMap.has(id)) return this._wfaMap.get(id);
+    const v = _wf.call(this, id);
+    if (this._wfaEq !== this.s.equip || now - (this._wfaT || 0) >= 120) { this._wfaEq = this.s.equip; this._wfaT = now; this._wfaMap = new Map(); }
+    this._wfaMap.set(id, v);
+    return v;
+  };
+  // 장비 정리 카드의 '약한 장비' 목록: 장비 · 가방이 그대로면 2초 동안 다시 계산하지 않음
+  const _ug = P.uselessGear;
+  P.uselessGear = function () {
+    const now = performance.now(), bk = this.s.bank, n = Object.keys(bk).length;
+    const c = this._ugC;
+    if (c && c.eq === this.s.equip && c.n === n && now - c.t < 2000) return c.v.filter((id) => bk[id] > 0);
+    const v = _ug.call(this);
+    this._ugC = { eq: this.s.equip, n, t: now, v };
+    return v;
+  };
+}

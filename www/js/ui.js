@@ -64,7 +64,12 @@ export class UI {
   bankSig() {
     const now = performance.now();
     const iv = ['bank', 'gear', 'skills', 'town'].includes(this.tab) ? 4000 : 15000; // 가방을 안 보는 탭은 15초에 한 번
-    if (this._bkS == null || now - (this._bkT || 0) > iv) { this._bkT = now; this._bkS = JSON.stringify(this.g.s.bank); }
+    if (this._bkS == null || now - (this._bkT || 0) > iv) {
+      this._bkT = now;
+      const bk = this.g.s.bank;
+      // 장비 탭은 장비 수만 봄 (광석 · 음식 같은 전리품이 들어와도 장비 목록을 다시 그리지 않게)
+      this._bkS = this.tab === 'gear' ? Object.keys(bk).filter((id) => ITEMS[id]?.kind === 'gear').map((id) => id + ':' + bk[id]).join(',') : JSON.stringify(bk);
+    }
     return this._bkS;
   }
 
