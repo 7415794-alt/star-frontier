@@ -3175,3 +3175,5 @@ export const XGEAR_T = [
     return v;
   };
 }
+// 스탯 추천: 레벨 상한 (전투 스킬 · 신성은 9999)
+P.lvMax = function (id) { return EXT_IDS.has(id) ? DIV_MAX : MAX_L; };

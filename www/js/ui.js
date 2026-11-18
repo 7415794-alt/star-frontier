@@ -279,12 +279,15 @@ export class UI {
     const r = g.analyze(m);
     const list = this.recMode === 'real' ? r.real : r.pow;
     const key = this.recMode === 'real' ? 'real' : 'power';
-    const rows = list.slice(0, 6).map((x, i) => `<div class="${i === 0 ? 'best' : ''}">${i === 0 ? '👍 ' : ''}${x.label}</div><div class="up">${sign(x[key], 2)}</div>`).join('');
+    const row = (x, i) => `<div class="${i === 0 ? 'best' : ''}">${i === 0 ? '👍 ' : ''}${x.label}</div><div class="up">${sign(x[key], Math.abs(x[key]) < 0.0001 ? 3 : 2)}</div>`;
+    const rows = list.filter((x) => !x.pct).slice(0, 6).map(row).join('');
+    const pcs = list.filter((x) => x.pct).map(row).join('');
     const c = h('div', 'card', `<b>📈 지금 올리면 좋은 스탯</b>
       <div class="seg" style="margin-top:6px"><button data-m="real" class="${this.recMode === 'real' ? 'on' : ''}">⚔ 실제 전투</button><button data-m="pow" class="${this.recMode === 'pow' ? 'on' : ''}">💪 전투력</button></div>
       <div class="mut">${this.recMode === 'real' ? `${m.icon} ${m.name} 상대로 분당 처치 수 증가 (지금 ${r.now.kpm.toFixed(1)}마리/분)` : `몬스터와 상관없는 순수 강함 증가 (지금 ${fmt(r.power)})`}</div>
       <div class="rec">${rows || '<div class="mut">올릴 수 있는 스탯이 없습니다</div>'}</div>
-      <div class="mut" style="margin-top:4px">레벨 +1 / 장비 스탯 +10 (흡수 · 피해 감소는 +1%p) 했을 때 기준 · 흡수 최대 ${pct(CAPS.ls)} · 피해 감소 최대 ${pct(CAPS.dr)}</div>`);
+      ${pcs ? `<div style="margin-top:6px"><b>% 스탯</b> <span class="mut">잠재능력 · 펫 · 신성 등</span></div><div class="rec">${pcs}</div>` : ''}
+      <div class="mut" style="margin-top:4px">레벨 +1 / 장비 스탯 +10 (흡수 · 피해 감소는 +1%p) / % 스탯 +1% 했을 때 기준 · 흡수 최대 ${pct(CAPS.ls)} · 피해 감소 최대 ${pct(CAPS.dr)}</div>`);
     c.querySelectorAll('[data-m]').forEach((b) => b.addEventListener('click', () => { this.recMode = b.dataset.m; }));
     p.appendChild(c);
   }

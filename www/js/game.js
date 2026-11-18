@@ -1,6 +1,6 @@
 // 별무리 개척기 — 게임 로직
 import {
-  SKILLS, SKILL, ITEMS, SLOT_IDS, STAT_IDS, CAPS, MONSTER, ACTIONS, PRAYERS, PETS, PET, SPELLS, SPEEDS,
+  SKILLS, SKILL, ITEMS, SLOT_IDS, STAT_IDS, CAPS, MONSTER, ACTIONS, PRAYERS, PETS, PET, SPELLS, SPEEDS, MAX_LVL,
   levelOf, XP_TABLE, TIERS, RARITY, baseHp, COMBAT_TICK, HUNT_PER, huntTier, rollRarity, gearId, penChance, defEff, defEffStd, monAtkStr, MON_ROLL, monFloor, monDef, RESPAWN, DEATH_TIME, OFFLINE_CAP, SHOP,
 } from './data.js';
 
@@ -218,12 +218,16 @@ export class Game {
       ['lv', 'def', '🛡️ 방어 Lv +1'],
       ...(st === 'melee' ? [['st', 'atk', '장비 🗡️ 공격 +10', 10], ['st', 'str', '장비 💪 힘 +10', 10]] : st === 'ranged' ? [['st', 'rng', '장비 🏹 원거리 +10', 10]] : [['st', 'mag', '장비 🔮 마법 +10', 10]]),
       ['st', 'def', '장비 🛡️ 방어 +10', 10], ['st', 'ls', '장비 🩸 생명력 흡수 +1%p', 0.01], ['st', 'dr', '장비 🧱 피해 감소 +1%p', 0.01],
+      // % 스탯 (잠재능력 · 펫 · 신성 등): 전투력이 실제로 오르는 것만
+      ...(st === 'melee' ? [['sp', 'atkPct', '🗡️ 공격 +1%', 0.01, 1], ['sp', 'strPct', '💪 힘 +1%', 0.01, 1]] : st === 'ranged' ? [['sp', 'rngPct', '🏹 원거리 +1%', 0.01, 1]] : [['sp', 'magPct', '🔮 마법 +1%', 0.01, 1]]),
+      ['sp', 'defPct', '🛡️ 방어 +1%', 0.01, 1],
     ];
-    const rows = tests.map(([kind, k, label, d = 1]) => {
-      const p = { ...p0, lv: { ...p0.lv }, st: { ...p0.st } };
-      p[kind][k] += d;
-      const full = (k === 'ls' && C.ls(p0) >= CAPS.ls) || (k === 'dr' && C.dr(p0) >= CAPS.dr) || (kind === 'lv' && p0.lv[k] >= 100);
-      return { label, full, real: now ? C.vs(p, m).kpm / Math.max(1e-9, now.kpm) - 1 : 0, power: C.power(p) / Math.max(1, pw0) - 1 };
+    const rows = tests.map(([kind, k, label, d = 1, pc]) => {
+      const p = { ...p0, lv: { ...p0.lv }, st: { ...p0.st }, sp: { ...p0.sp } };
+      p[kind][k] = (p[kind][k] || 0) + d;
+      const full = (k === 'ls' && C.ls(p0) >= CAPS.ls) || (k === 'dr' && C.dr(p0) >= CAPS.dr) || (kind === 'lv' && p0.lv[k] >= (this.lvMax ? this.lvMax(k) : MAX_LVL));
+      const power = C.power(p) / Math.max(1, pw0) - 1;
+      return { label, full: full || (pc && power <= 1e-9), pct: !!pc, real: now ? C.vs(p, m).kpm / Math.max(1e-9, now.kpm) - 1 : 0, power };
     }).filter((r) => !r.full);
     return { now, power: pw0, real: [...rows].sort((a, b) => b.real - a.real), pow: [...rows].sort((a, b) => b.power - a.power) };
   }
