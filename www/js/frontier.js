@@ -1947,7 +1947,7 @@ const _updSF = P.update;
 P.update = function (dt) { _updSF.call(this, dt); this.sfAutoTick(dt); };
 
 // ---- 화면 ----
-const SF_TARGETS = [5, 10, 12, 15, 17, 18, 20, 22, 25, 30];
+const SF_TARGETS = Array.from({ length: SF_MAX }, (_, i) => i + 1); // 목표 1~30성 모두 선택 가능
 const starBar = (n) => `<span style="color:#ffd84d;letter-spacing:-1px">${'★'.repeat(Math.min(n, 15))}</span>${n > 15 ? `<span style="color:#ff9f43;letter-spacing:-1px">${'★'.repeat(n - 15)}</span>` : ''}`;
 function townStar(ui, p, g, s) {
   const f = g.sfInit();
@@ -2739,27 +2739,30 @@ U.potOpen = function (sl, auto = false) {
   const close = () => { clearInterval(ui._sfWinT); wrap.remove(); ui._rT = 0; ui.render(true); };
   wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
   const draw = () => {
+    // 자동이 멈추면 (목표 달성 · 큐브 부족 · 직접 멈춤) 자동 화면에 갇히지 않고 일반 큐브 화면으로 돌아옴
+    if (st.auto && !f.auto) { st.auto = false; st.stopMsg = f.stop || '멈춤'; if (f.mode === 'ind' && f.indSl) st.sl = f.indSl; }
     const A = st.auto;
     if (A && f.auto) st.sl = g.potAutoPick() || st.sl;
     const sl2 = st.sl, cur = g.potOf(sl2), it = ITEMS[g.s.equip[sl2]];
-    const PF = g.potPref(sl2);
+    const PF = A && f.mode === 'ind' ? g.potPref(sl2) : g.potPrefFor(sl2);
+    const FL = st.flash && st.flash.sl === sl2 && performance.now() - st.flash.at < 2500 ? st.flash : null;
     const linesHtml = (lines) => lines.map((l) => `<div${PF.k.includes(l.k) ? ' class="pf"' : ''}>${PF.k.includes(l.k) ? '⭐' : ''}${potLineTxt(l)}</div>`).join('') + (lines.length === 3 && lines.every((l) => l.k === lines[0].k) ? '<div class="p3">✨ 3줄 같은 옵션!</div>' : '');
     const C = !A && f.cand && f.candSl === sl2 ? f.cand : null;
     const L = A ? f.last : null;
     // 큐브 개수는 다시 그리지 않고 글자만 바꿈 (전투 중 큐브가 떨어질 때마다 후보가 다시 그려져서 움직이고 눌리지 않던 문제)
     const cubes = g.have('cube');
     box.querySelectorAll('.pcube').forEach((e) => { e.textContent = fmt(cubes); });
-    const key = JSON.stringify([A, f.auto, f.mode, sl2, cur, C ? 1 : 0, A ? cubes : Math.min(9, cubes), f.tries, f.stop, f.autoUp, f.keepBetter, PF, g.potLocks(sl2)]);
+    const key = JSON.stringify([A, f.auto, f.mode, sl2, cur, C ? 1 : 0, A ? cubes : Math.min(9, cubes), f.tries, f.stop, f.autoUp, f.keepBetter, PF, g.potPref(sl2), g.potLocks(sl2), !!FL, st.stopMsg]);
     if (key === st.key) return;
     st.key = key;
     const slotSel = A ? '' : `<select class="sfsl">${SLOT_IDS_SF.map((x) => `<option value="${x}"${x === sl2 ? ' selected' : ''}>${SLOTS_SF[x].icon} ${SLOTS_SF[x].name} · ${g.potGrade(x) ? potName(g.potGrade(x)) : '없음'}</option>`).join('')}</select>`;
     const curHtml = `<div class="potcur" style="border-color:${potCol(cur?.g)}"><div class="potg" style="color:${potCol(cur?.g)}">${cur ? `${cur.g}단계 ${potName(cur.g)}` : '잠재능력 없음'}</div>${cur ? g.potCurHtml(sl2, linesHtml, !A && !C && !f.auto) : '<div class="mut">큐브를 쓰면 1단계부터 시작</div>'}</div>`;
     let candHtml = '';
-    const showC = C || (L && L.sl === sl2 && performance.now() - L.at < 2000 ? L.cand : null);
+    const showC = C || (FL ? FL.cand : null) || (L && L.sl === sl2 && performance.now() - L.at < 2000 ? L.cand : null);
     const nw = showC && showC !== st.lastC ? ' nw' : ''; // 새 후보일 때만 튀어나오는 효과
     st.lastC = showC;
     if (showC) {
-      candHtml = `<div class="potcands">${showC.map((c, i) => `<div class="potc${nw}${c.up ? ' up' : ''}${A && L?.pick === i ? ' pick' : ''}" data-i="${i}" style="border-color:${potCol(c.g)}">
+      candHtml = `<div class="potcands">${showC.map((c, i) => `<div class="potc${nw}${c.up ? ' up' : ''}${(A && L?.pick === i) || (!C && FL?.pick === i) ? ' pick' : ''}" data-i="${i}" style="border-color:${potCol(c.g)}">
         <div class="potg" style="color:${potCol(c.g)}">${c.up ? '⬆ 등업! ' : ''}${potName(c.g)}</div>${linesHtml(c.lines)}${C ? '<button class="btn sm pri pk">이걸로</button>' : ''}</div>`).join('')}</div>`;
     }
     const sess = `이번에 큐브 ${fmt(f.tries - st.tries0)}개 · 등업 ${fmt(f.ups - st.ups0)}번`;
@@ -2769,12 +2772,14 @@ U.potOpen = function (sl, auto = false) {
     box.innerHTML = `<div class="sfhd"><b>${A ? (f.mode === 'ind' ? '🤖 이 부위 자동 큐브' : '🤖 자동 큐브') : '🔮 잠재능력'}</b><button class="btn sm sfx">✕ 닫기</button></div>
       ${slotSel}
       <div class="sfmain"><div class="sfic">${SLOTS_SF[sl2].icon}</div><div class="sfnm">${SLOTS_SF[sl2].name} <span class="mut">${it ? it.name : '비어 있음'}</span></div>${curHtml}</div>
+      ${!A && st.stopMsg ? `<div class="sp" style="text-align:center">⏹ 자동 큐브 멈춤: ${st.stopMsg}</div>` : ''}
+      ${FL && !C ? `<div class="sp" style="text-align:center">${FL.msg}</div>` : ''}
       ${candHtml}
       <div class="mut" style="text-align:center">${g0 && g0 < POT_MAX ? `다음 단계 ${potName(g0 + 1)} 확률 ${pct(potUp(g0), 2)} (후보마다) · ` : ''}🧊 큐브 <span class="pcube">${fmt(cubes)}</span>개</div>
       ${A ? `<div class="sfgrid">${SLOT_IDS_SF.map((x) => `<div class="${x === sl2 ? 'on' : ''}">${SLOTS_SF[x].icon}<b style="color:${potCol(g.potGrade(x))}">${g.potGrade(x) || '-'}</b></div>`).join('')}</div>
         <div class="mut" style="text-align:center">${f.mode === 'ind' ? g.potIndGoalTxt() : `목표 ${f.target}단계 ${potName(f.target)} · ${f.slot === 'all' ? '모든 부위 (낮은 것부터)' : SLOTS_SF[f.slot].name}`}${f.stop && !f.auto ? ` · <b>멈춤: ${f.stop}</b>` : ''}</div>` : ''}
       <div class="mut" style="text-align:center">${sess}</div>
-      <label class="tg" style="justify-content:center"><input type="checkbox" class="ptu"${f.autoUp ? ' checked' : ''}> ⬆ 등업은 자동 선택</label>
+      ${A && f.mode === 'ind' ? '' : `<label class="tg" style="justify-content:center"><input type="checkbox" class="ptu"${f.autoUp ? ' checked' : ''}> ⬆ 등업은 자동 선택</label>`}
       <div class="sfbtns">${A
         ? `<button class="btn ${f.auto ? '' : 'pri'} big pta">${f.auto ? '■ 자동 큐브 멈춤' : '▶ 자동 큐브 다시 시작'}</button>`
         : C ? '<button class="btn big pkeep">지금 것 유지</button>'
@@ -2784,18 +2789,21 @@ U.potOpen = function (sl, auto = false) {
       ${!A && !C && !f.auto ? g.potIndHtml(sl2) : ''}`;
     box.querySelector('.sfx').addEventListener('click', close);
     box.querySelector('.sfsl')?.addEventListener('change', (e) => { if (f.cand) g.potPick(-1); st.sl = e.target.value; st.key = ''; draw(); });
-    box.querySelector('.ptu').addEventListener('change', (e) => { f.autoUp = e.target.checked; st.key = ''; draw(); });
+    box.querySelector('.ptu')?.addEventListener('change', (e) => { f.autoUp = e.target.checked; st.key = ''; draw(); });
     box.querySelector('.pgo')?.addEventListener('click', () => {
+      st.stopMsg = null;
       const c = g.potRoll3(st.sl);
-      if (!c) { g.toast('🧊 큐브가 없습니다', 'bad'); return; }
-      // 처음 잠재능력이면 가장 좋은 것 / 등업 자동 선택이 켜져 있으면 등업 후보를 바로 고름
+      if (!c) { g.toast('🧊 큐브가 모자랍니다', 'bad'); return; }
+      // 처음 잠재능력이면 가장 좋은 것 / 등업 자동 선택이 켜져 있으면 등업 후보를 바로 고름 (고른 후보를 잠깐 보여 줌)
       const cur2 = g.potOf(st.sl);
-      if (!cur2) { g.potPick(g.potAutoChoice()); }
+      let bi = -1, msg = '';
+      if (!cur2) { bi = g.potAutoChoice(); msg = '✨ 첫 잠재능력: 가장 좋은 후보를 골랐습니다'; }
       else if (f.autoUp && c.some((x) => x.g > cur2.g)) {
-        let bi = -1, bs = -Infinity;
-        c.forEach((x, i) => { if (x.g > cur2.g && g.potScore(x.lines) > bs) { bs = g.potScore(x.lines); bi = i; } });
-        g.potPick(bi);
+        let br = null;
+        c.forEach((x, i) => { if (x.g <= cur2.g) return; const r = g.potGRank(st.sl, x.g, x.lines); if (!br || potCmp(r, br) > 0) { br = r; bi = i; } });
+        msg = '⬆ 등업 후보를 자동으로 골랐습니다';
       }
+      if (bi >= 0) { st.flash = { sl: st.sl, cand: c, pick: bi, at: performance.now(), msg }; g.potPick(bi); }
       st.key = ''; draw();
     });
     box.querySelectorAll('.potc .pk').forEach((b) => b.addEventListener('click', () => { g.potPick(+b.closest('.potc').dataset.i); st.key = ''; draw(); }));
@@ -2806,7 +2814,7 @@ U.potOpen = function (sl, auto = false) {
     box.querySelector('.pneed')?.addEventListener('change', (e) => { g.potPref(sl2, true).need = +e.target.value; st.key = ''; draw(); });
     box.querySelector('.pgmin')?.addEventListener('change', (e) => { g.potPref(sl2, true).gmin = +e.target.value; st.key = ''; draw(); });
     box.querySelectorAll('.plk').forEach((b) => b.addEventListener('click', () => { g.potToggleLock(sl2, +b.dataset.i); st.key = ''; draw(); }));
-    box.querySelector('.pind')?.addEventListener('click', () => { if (g.potIndStart(sl2)) st.auto = true; st.key = ''; draw(); });
+    box.querySelector('.pind')?.addEventListener('click', () => { st.stopMsg = null; st.flash = null; if (g.potIndStart(sl2)) { st.auto = true; st.tries0 = f.tries; st.ups0 = f.ups; } st.key = ''; draw(); });
     ui.noWrapSeg?.(box);
   };
   draw();
@@ -3314,13 +3322,13 @@ P.potIndGoalTxt = function () {
 const _potPickInd = P.potAutoPick;
 P.potAutoPick = function () {
   const f = this.potInit();
-  if (f.mode === 'ind') return f.indSl && !this.potIndDone(f.indSl) ? f.indSl : null;
+  if (f.mode === 'ind' && f.auto) return f.indSl && !this.potIndDone(f.indSl) ? f.indSl : null;
   return _potPickInd.call(this);
 };
 const _potChoiceInd = P.potAutoChoice;
 P.potAutoChoice = function () {
   const f = this.potInit();
-  if (f.mode !== 'ind' || !f.cand) return _potChoiceInd.call(this);
+  if (f.mode !== 'ind' || !f.auto || !f.cand) return _potChoiceInd.call(this);
   const sl = f.candSl, cur = this.potOf(sl);
   let best = -1, br = cur ? this.potIndRank(sl, cur.g, cur.lines) : null;
   f.cand.forEach((c, i) => { const r = this.potIndRank(sl, c.g, c.lines); if (!br || potCmp(r, br) > 0) { br = r; best = i; } });
@@ -3404,7 +3412,7 @@ P.potGNeed = function (sl) {
 const _potPickG = P.potAutoPick;
 P.potAutoPick = function () {
   const f = this.potInit();
-  if (f.mode === 'ind') return _potPickG.call(this);
+  if (f.mode === 'ind' && f.auto) return _potPickG.call(this);
   const list = f.slot === 'all' ? SLOT_IDS_SF : [f.slot];
   let best = null;
   for (const sl of list) if (this.potGNeed(sl) && (best == null || this.potGrade(sl) < this.potGrade(best))) best = sl;
@@ -3413,7 +3421,7 @@ P.potAutoPick = function () {
 const _potChoiceG = P.potAutoChoice;
 P.potAutoChoice = function () {
   const f = this.potInit();
-  if (f.mode === 'ind' || !f.cand || !this.potPrefFor(f.candSl).k.length) return _potChoiceG.call(this);
+  if ((f.mode === 'ind' && f.auto) || !f.cand || !this.potPrefFor(f.candSl).k.length) return _potChoiceG.call(this);
   const sl = f.candSl, cur = this.potOf(sl);
   let best = -1, br = cur ? this.potGRank(sl, cur.g, cur.lines) : null;
   f.cand.forEach((c, i) => { const r = this.potGRank(sl, c.g, c.lines); if (!br || potCmp(r, br) > 0) { br = r; best = i; } });
@@ -3431,7 +3439,7 @@ P.potAutoTick = function (dt) {
 const _potStartG = P.potAutoStart;
 P.potAutoStart = function () {
   const f = this.potInit();
-  if (f.mode !== 'ind' && !this.potAutoPick()) { this.toast(`이미 목표 ${potName(f.target)} 단계${this.potGPref().k.length ? ' · 선호 옵션' : ''} 달성`, 'bad'); return false; }
+  if (!this.potAutoPick()) { this.toast(`이미 목표 ${potName(f.target)} 단계${this.potGPref().k.length ? ' · 선호 옵션' : ''} 달성`, 'bad'); return false; }
   return _potStartG.call(this);
 };
 // 잠재 탭: 전체 자동 큐브 선호 옵션 칸
