@@ -229,7 +229,7 @@ export class UI {
     }).join('')}</div>
       <div class="zbtns">${ZONES.map((z, i) => [z, i]).filter(([z]) => zG(z) === curT).map(([z, i]) => {
       const hn = z.mons.reduce((a, m) => a + huntTier(s.kills?.[m.id]), 0);
-      return `<button class="zb${i === this.zone ? ' on' : ''}" data-i="${i}"><b>${z.n}${this.qMark?.(z.mons.map((m) => m.id)) || ''}</b><small>Lv ${z.mons[0].lvl}~${z.mons[3].lvl}${hn ? ` · 🏹${hn}/${z.mons.length * HUNT_TIERS.length}` : ''}</small></button>`;
+      return `<button class="zb${i === this.zone ? ' on' : ''}" data-i="${i}"><b>${z.n}${this.qMark?.(z.mons.map((m) => m.id)) || ''}${this.zonePetMark?.(z) || ''}</b><small>Lv ${z.mons[0].lvl}~${z.mons[3].lvl}${hn ? ` · 🏹${hn}/${z.mons.length * HUNT_TIERS.length}` : ''}</small></button>`;
     }).join('')}</div>`);
     zs.querySelectorAll('.tc').forEach((b) => b.addEventListener('click', () => { this.zone = Math.max(0, ZONES.findIndex((z) => zG(z) === +b.dataset.t)); }));
     zs.querySelectorAll('.zb').forEach((b) => b.addEventListener('click', () => { this.zone = +b.dataset.i; }));
@@ -246,7 +246,7 @@ export class UI {
         <div class="ic">${m.icon}</div>
         <div class="info"><div class="nm">${m.boss ? '👑 ' : ''}${m.name}${this.qMark?.([m.id]) || ''} <span class="mut">Lv ${m.lvl} · 체력 ${fmt(m.hp)} · 🔍 전리품${huntTier(s.kills?.[m.id]) ? ` · 🏹${huntTier(s.kills?.[m.id])}` : ''}</span></div>
         <div class="mut">${STYLES[m.style].icon}${STYLES[m.style].name} · 공격 ${m.atk} · 힘 ${m.str} · 방어 ${v.mdef} · ${m.interval}초 · 약점 ${STYLES[m.weak].icon}</div>
-        <div class="mut sp">${this.huntLine(m)}</div>
+        <div class="mut sp">${this.huntLine(m)}</div>${this.petLine?.(m) || ''}
         <div class="mut">내 피해 ${v.min}~${v.mh} · 처치 약 ${time(v.ttk)} · 적 명중 ${pct(v.mHit)} · 최대 ${v.mMax}${danger ? ' <span style="color:#f87171">⚠ 위험</span>' : ''} · 처치 ${fmt(s.kills?.[m.id] || 0)}</div></div>
         <button class="btn ${on ? '' : 'pri'}">${on ? '■' : '⚔ 싸우기'}</button>`);
       $('button', r).addEventListener('click', (e) => { e.stopPropagation(); if (on) g.stopCombat(); else g.startCombat(m.id); });

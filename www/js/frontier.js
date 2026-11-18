@@ -3041,3 +3041,62 @@ if (!ZONES.some((z) => z.xz)) {
   });
 }
 window.__XT = XTIERS;
+
+// ====================== 🐾 새 지역 보스 펫 · 👑 새 지역 업적 ======================
+{
+  const XPET_FX = [['atkFlat', 'strFlat'], ['defFlat'], ['rngFlat', 'magFlat'], ['drop'], ['bossDmg'], ['ls'], ['dr'], ['heal'], ['hpTick'], ['gspd', 'pspd'], ['strFlat', 'defFlat'], ['atkFlat', 'magFlat']];
+  const XPET_PRE = ['아기', '꼬마', '새끼', '어린', '작은', '별빛', '꿈꾸는'];
+  ZONES.filter((z) => z.xz).forEach((z, k) => {
+    if (PETS.some((x) => x.src === 'boss:' + z.z)) return;
+    const b = z.mons[3], L = b.lvl, ofR = xRatio(X_OFF, L, 230), dfR = xRatio(X_DEF, L, 230), hpR = xRatio(X_HP, L, 230);
+    const grow = 1 + 0.15 * Math.log2(L / 230); // % 효과는 높은 지역일수록 조금씩 더
+    const val = (key) => {
+      if (key === 'defFlat') return Math.round(0.065 * refDefP(230) * 1.5 * dfR);
+      if (/Flat$/.test(key)) return Math.round(0.065 * refDefP(230) * ofR);
+      if (key === 'hpTick') return Math.round(24 * Math.sqrt(hpR));
+      if (key === 'ls' || key === 'dr') return Math.round(0.012 * grow * 10000) / 10000;
+      if (key === 'heal') return Math.round(0.15 * grow * 10000) / 10000;
+      return Math.round(0.065 * grow * 10000) / 10000;
+    };
+    const keys = XPET_FX[k % XPET_FX.length];
+    const pet = { id: 'zp_' + z.z, name: `${z.n.split(' ')[0].replace(/의$/, '')} ${XPET_PRE[k % XPET_PRE.length]} ${b.name.split(' ').pop()}`, icon: b.icon, src: 'boss:' + z.z,
+      p: 1 / Math.round(160 + 3 * Math.min(L, 400)), fx: Object.fromEntries(keys.map((x) => [x, val(x)])) };
+    PETS.push(pet); PET_A[pet.id] = pet;
+  });
+  // 업적: 지역마다 정복 · 소탕 + 레벨 구간 지배자 + 높은 전투 레벨
+  const before = ACHS.length;
+  for (const z of ZONES.filter((x) => x.xz)) {
+    const b = z.mons[3];
+    add('boss', 'zone_' + z.z, b.icon, `${z.n} 정복`, `${z.n}의 보스 ${b.name} 처치 (Lv ${b.lvl})`, 6, (g) => [g.s.kills?.[b.id] ? 1 : 0, 1]);
+    add('boss', 'zall_' + z.z, '🗺️', `${z.n} 소탕`, `${z.n}의 몬스터 4종 모두 처치`, 6, (g) => [z.mons.filter((m) => g.s.kills?.[m.id]).length, 4]);
+  }
+  [400, 1000, 2000, 5000, 9999].forEach((L) => {
+    const zs = ZONES.filter((z) => z.lvl <= L);
+    add('boss', 'zb_' + L, '🏆', `Lv ${L} 지역의 지배자`, `Lv ${L} 이하 지역 보스 ${zs.length}마리 전부 처치`, 6, (g) => [zs.filter((z) => g.s.kills?.[z.mons[3].id]).length, zs.length]);
+  });
+  ladder('lvl', 'cl', '🌌', ['별무리 너머', '은하의 영웅', '시간의 주인', '창세의 신', '무한의 존재'], (n) => `전투 레벨 ${fmt(n)} 달성`, [300, 1000, 2000, 5000, 10000], (g) => g.combatLevel(), 6);
+  ACHS.slice(before).forEach((a, i) => {
+    const kk = ACH_ST[(before + i) % 5];
+    // 높은 지역 업적은 보상도 지역 레벨에 맞게 큼
+    const zL = a.id.startsWith('zone_x') || a.id.startsWith('zall_x') ? ZONES.find((z) => 'zone_' + z.z === a.id || 'zall_' + z.z === a.id)?.lvl : +(a.id.match(/_(\d+)$/)?.[1] || 240);
+    const mul = Math.max(1, Math.round(xRatio(X_OFF, Math.min(9999, zL || 240), 230) * 10) / 10);
+    a.rw = { k: kk + 'Flat', v: Math.round(ACH_V[a.grade] * mul * (kk === 'def' ? 1.5 : 1)) };
+    a.pts = (a.grade + 1) * 10;
+    ACH_BY[a.id] = a;
+  });
+}
+// 몬스터 창: 이 몬스터가 떨어뜨리는 펫 · 펫 레벨 (만렙이면 👑)
+const bossPetOf = (m) => (m?.boss ? PETS.find((x) => x.src === 'boss:' + m.z) : null);
+U.petLine = function (m) {
+  const pet = bossPetOf(m);
+  if (!pet) return '';
+  const g = this.g, lv = g.petLv(pet.id), mx = g.PET_MAX || 10;
+  const st = !lv ? '<span class="mut">미획득</span>' : lv >= mx ? '<b class="ok">👑 만렙 (더 안 나옴)</b>' : `<b>Lv ${lv}/${mx}</b>`;
+  return `<div class="petln${lv >= mx ? ' max' : ''}">🐾 펫 드랍 ${pet.icon} ${pet.name} · 1/${fmt(Math.round(1 / pet.p))} · ${st}</div>`;
+};
+U.zonePetMark = function (z) {
+  const pet = bossPetOf(z.mons[3]);
+  if (!pet) return '';
+  const lv = this.g.petLv(pet.id);
+  return lv >= (this.g.PET_MAX || 10) ? ' 👑' : lv ? ` 🐾${lv}` : ' 🐾';
+};

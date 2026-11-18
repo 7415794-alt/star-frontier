@@ -287,3 +287,5 @@ body.th-adv .xpstrip .xpn { color: #eaf2ff; }
 #expTop .etx { position: absolute; inset: 0; font-size: 11px; line-height: 16px; text-align: center; color: #fff; text-shadow: 0 1px 2px #000, 0 0 2px #000; white-space: nowrap; overflow: hidden; }
 body.th-adv #expTop { border-bottom: 2px solid #e0a63a; }
 body.th-adv #expTop .ebar > div { background: linear-gradient(90deg, #ffd25a, #ff9a1f); }
+.petln{font-size:.82em;color:#f9c97a}
+.petln.max{color:#86efac}
