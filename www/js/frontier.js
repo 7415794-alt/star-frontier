@@ -2981,3 +2981,63 @@ U.frame = function () {
 import { baseHp as baseHpX } from './data.js';
 const _hpMemo = new Map();
 C.maxHp = (p) => { const L = p.lv.def; let v = _hpMemo.get(L); if (v == null) { v = baseHpX(L); _hpMemo.set(L, v); } return v; };
+
+// ====================== 🌌 새 지역: 240 ~ 9999레벨 (전투 스킬 · 신성이 그 레벨인 플레이어 기준으로 맞춤) ======================
+// 같은 장비로 스킬 · 신성 레벨만 올렸을 때 플레이어의 최대 피해 · 방어 · 최대 체력 (200레벨 = 1)
+const XL = [200, 300, 500, 1000, 2000, 5000, 9999];
+const X_OFF = [5063, 5968, 7925, 13455, 24442, 63766, 143891];
+const X_DEF = [4343, 5076, 6660, 11115, 19997, 51657, 115295];
+const X_HP = [2582, 5632, 15482, 61982, 248732, 1558982, 6241483];
+const xInterp = (T, L) => {
+  if (L <= XL[0]) return T[0];
+  for (let i = 1; i < XL.length; i++) if (L <= XL[i]) { const f = Math.log(L / XL[i - 1]) / Math.log(XL[i] / XL[i - 1]); return Math.exp(Math.log(T[i - 1]) + f * (Math.log(T[i]) - Math.log(T[i - 1]))); }
+  return T[T.length - 1];
+};
+const xRatio = (T, L, L0) => xInterp(T, L) / xInterp(T, L0);
+// 지역 묶음 (전투 화면의 단계 칩)
+export const XTIERS = [
+  { n: '성계 너머', lvl: 240, c: '#7dd3fc' }, { n: '은하 심층', lvl: 450, c: '#a78bfa' }, { n: '시간의 끝', lvl: 900, c: '#f472b6' },
+  { n: '창세', lvl: 2000, c: '#fbbf24' }, { n: '무한', lvl: 5000, c: '#fff7ae' },
+];
+const X_ZONES = [
+  ['별무리 너머', 240], ['잊힌 성계', 260], ['은하 균열', 280], ['검은 태양', 300], ['무한 회랑', 330],
+  ['시간의 끝자락', 360], ['창조의 용광로', 400], ['별의 무덤', 450], ['영겁의 바다', 500], ['초신성 잔해', 560],
+  ['암흑 성운', 630], ['천체 대성당', 700], ['빛의 근원', 800], ['혼돈 성역', 900], ['태초의 별', 1000],
+  ['종언의 지평', 1200], ['우주의 심장', 1400], ['꿈꾸는 은하', 1700], ['신들의 정원', 2000], ['별을 먹는 숲', 2500],
+  ['차원의 바다', 3000], ['영원의 왕좌', 4000], ['첫 번째 빛', 5000], ['마지막 어둠', 7000], ['종말의 별', 9400],
+];
+const X_KINDS = {
+  melee: [['파괴자', '🦾'], ['거신', '🗿'], ['검귀', '⚔️'], ['수호병', '🛡️'], ['야수', '🐲']],
+  ranged: [['명사수', '🏹'], ['별사냥꾼', '🎯'], ['유성 투척수', '☄️'], ['저격 정령', '🔭']],
+  magic: [['대마도사', '🧙'], ['성령', '👻'], ['별마녀', '🔮'], ['현자', '📜']],
+};
+const X_BOSS = [['군주', '🐉'], ['여제', '🦂'], ['수호신', '🦖'], ['대왕', '🐙'], ['파멸자', '👹'], ['지배자', '🧞'], ['포식자', '🐺'], ['대현자', '🦉']];
+const X_ROT = ['melee', 'ranged', 'magic'];
+// 기준이 되는 200레벨대 몬스터 (방식 · 보스 여부별로 가장 높은 레벨)
+const xTpl = (style, boss) => Object.values(MONSTER).filter((m) => m.style === style && !!m.boss === boss && m.lvl >= 190 && m.lvl <= 240 && !m.xz).sort((a, b) => b.lvl - a.lvl)[0];
+if (!ZONES.some((z) => z.xz)) {
+  X_ZONES.forEach(([n, L], k) => {
+    const adj = n.split(' ')[0].replace(/의$/, '');
+    const grp = 21 + XTIERS.filter((T) => L >= T.lvl).length - 1;
+    // 새 지역마다 별뼈 (신성 경험치가 레벨에 맞게 큼)
+    const bid = `xbone${k}`;
+    ITEMS[bid] = { name: `${adj}의 별뼈`, icon: '🦴', kind: 'bone', xp: Math.round(547 * (L / 200) ** 1.3), value: Math.round(60 * (L / 200)) };
+    const mk = (i, Lm, style, boss, name, icon) => {
+      const T = xTpl(style, boss);
+      const off = xRatio(X_OFF, Lm, T.lvl), dfn = xRatio(X_DEF, Lm, T.lvl), hpR = xRatio(X_HP, Lm, T.lvl);
+      return {
+        ...T, id: `x${k}_${i}`, name, icon, lvl: Lm, style, boss, z: 'x' + k, t: 20, xz: true,
+        hp: Math.round(T.hp * off), def: Math.round(T.def * off), atk: Math.round(T.atk * dfn), str: Math.round(T.str * hpR),
+        coins: T.coins.map((c) => Math.round(c * (Lm / T.lvl))),
+        loot: T.loot.map((l) => (/^bone\d+$/.test(l.id) ? { ...l, id: bid } : { ...l })),
+        defMul: { ...T.defMul },
+      };
+    };
+    const mons = [0, 1, 2].map((i) => { const st = X_ROT[(k + i) % 3], kd = X_KINDS[st][(k + i * 2) % X_KINDS[st].length]; return mk(i, Math.round(L * (1 + 0.02 * i)), st, false, `${adj} ${kd[0]}`, kd[1]); });
+    const bt = X_BOSS[k % X_BOSS.length];
+    mons.push(mk(3, Math.round(L * 1.06), X_ROT[k % 3], true, `${adj}의 ${bt[0]}`, bt[1]));
+    for (const m of mons) MONSTER[m.id] = m;
+    ZONES.push({ n, t: 20, z: 'x' + k, lvl: L, base: false, xz: true, grp, mons });
+  });
+}
+window.__XT = XTIERS;

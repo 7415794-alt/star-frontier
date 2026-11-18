@@ -222,20 +222,20 @@ export class UI {
       p.appendChild(sp);
     }
 
-    const curT = ZONES[this.zone].t, cl = g.combatLevel();
-    const zs = h('div', 'card zpick', `<div class="tstrip">${TIERS.map((T, t) => {
+    const zG = (z) => z.grp ?? z.t, curT = zG(ZONES[this.zone]), cl = g.combatLevel();
+    const zs = h('div', 'card zpick', `<div class="tstrip">${[...TIERS, ...(window.__XT || [])].map((T, t) => {
       const far = T.lvl > cl + 25;
-      return `<button class="tc${t === curT ? ' on' : ''}${far ? ' far' : ''}" data-t="${t}" style="--tc:${T.c}"><b>${T.n}${this.qMark?.(ZONES.filter((z) => z.t === t).flatMap((z) => z.mons.map((m) => m.id)), true) || ''}</b><small>Lv ${T.lvl}+</small></button>`;
+      return `<button class="tc${t === curT ? ' on' : ''}${far ? ' far' : ''}" data-t="${t}" style="--tc:${T.c}"><b>${T.n}${this.qMark?.(ZONES.filter((z) => zG(z) === t).flatMap((z) => z.mons.map((m) => m.id)), true) || ''}</b><small>Lv ${T.lvl}+</small></button>`;
     }).join('')}</div>
-      <div class="zbtns">${ZONES.map((z, i) => [z, i]).filter(([z]) => z.t === curT).map(([z, i]) => {
+      <div class="zbtns">${ZONES.map((z, i) => [z, i]).filter(([z]) => zG(z) === curT).map(([z, i]) => {
       const hn = z.mons.reduce((a, m) => a + huntTier(s.kills?.[m.id]), 0);
       return `<button class="zb${i === this.zone ? ' on' : ''}" data-i="${i}"><b>${z.n}${this.qMark?.(z.mons.map((m) => m.id)) || ''}</b><small>Lv ${z.mons[0].lvl}~${z.mons[3].lvl}${hn ? ` · 🏹${hn}/${z.mons.length * HUNT_TIERS.length}` : ''}</small></button>`;
     }).join('')}</div>`);
-    zs.querySelectorAll('.tc').forEach((b) => b.addEventListener('click', () => { this.zone = ZONES.findIndex((z) => z.t === +b.dataset.t); }));
+    zs.querySelectorAll('.tc').forEach((b) => b.addEventListener('click', () => { this.zone = Math.max(0, ZONES.findIndex((z) => zG(z) === +b.dataset.t)); }));
     zs.querySelectorAll('.zb').forEach((b) => b.addEventListener('click', () => { this.zone = +b.dataset.i; }));
     p.appendChild(zs);
     const on = zs.querySelector('.tc.on');
-    if (on) zs.querySelector('.tstrip').scrollLeft = on.offsetLeft - zs.querySelector('.tstrip').clientWidth / 2 + on.offsetWidth / 2;
+    if (on) { const ts = zs.querySelector('.tstrip'), sc = () => { const a = on.getBoundingClientRect(), r = ts.getBoundingClientRect(); if (r.width) ts.scrollLeft += a.left + a.width / 2 - (r.left + r.width / 2); }; sc(); requestAnimationFrame(sc); }
     this.lootSearch?.(p);
     const zn = ZONES[this.zone];
     for (const m of zn.mons) {
