@@ -2749,11 +2749,11 @@ U.potOpen = function (sl, auto = false) {
     // 큐브 개수는 다시 그리지 않고 글자만 바꿈 (전투 중 큐브가 떨어질 때마다 후보가 다시 그려져서 움직이고 눌리지 않던 문제)
     const cubes = g.have('cube');
     box.querySelectorAll('.pcube').forEach((e) => { e.textContent = fmt(cubes); });
-    const key = JSON.stringify([A, f.auto, f.mode, sl2, cur, C ? 1 : 0, A ? cubes : Math.min(3, cubes), f.tries, f.stop, f.autoUp, f.keepBetter, PF]);
+    const key = JSON.stringify([A, f.auto, f.mode, sl2, cur, C ? 1 : 0, A ? cubes : Math.min(9, cubes), f.tries, f.stop, f.autoUp, f.keepBetter, PF, g.potLocks(sl2)]);
     if (key === st.key) return;
     st.key = key;
     const slotSel = A ? '' : `<select class="sfsl">${SLOT_IDS_SF.map((x) => `<option value="${x}"${x === sl2 ? ' selected' : ''}>${SLOTS_SF[x].icon} ${SLOTS_SF[x].name} · ${g.potGrade(x) ? potName(g.potGrade(x)) : '없음'}</option>`).join('')}</select>`;
-    const curHtml = `<div class="potcur" style="border-color:${potCol(cur?.g)}"><div class="potg" style="color:${potCol(cur?.g)}">${cur ? `${cur.g}단계 ${potName(cur.g)}` : '잠재능력 없음'}</div>${cur ? linesHtml(cur.lines) : '<div class="mut">큐브를 쓰면 1단계부터 시작</div>'}</div>`;
+    const curHtml = `<div class="potcur" style="border-color:${potCol(cur?.g)}"><div class="potg" style="color:${potCol(cur?.g)}">${cur ? `${cur.g}단계 ${potName(cur.g)}` : '잠재능력 없음'}</div>${cur ? g.potCurHtml(sl2, linesHtml, !A && !C && !f.auto) : '<div class="mut">큐브를 쓰면 1단계부터 시작</div>'}</div>`;
     let candHtml = '';
     const showC = C || (L && L.sl === sl2 && performance.now() - L.at < 2000 ? L.cand : null);
     const nw = showC && showC !== st.lastC ? ' nw' : ''; // 새 후보일 때만 튀어나오는 효과
@@ -2778,7 +2778,8 @@ U.potOpen = function (sl, auto = false) {
       <div class="sfbtns">${A
         ? `<button class="btn ${f.auto ? '' : 'pri'} big pta">${f.auto ? '■ 자동 큐브 멈춤' : '▶ 자동 큐브 다시 시작'}</button>`
         : C ? '<button class="btn big pkeep">지금 것 유지</button>'
-          : `<button class="btn pri big pgo"${g.have('cube') <= 0 || f.auto ? ' disabled' : ''}>🧊 큐브 ${Math.min(3, g.have('cube')) || 3}개 돌리기</button>`}</div>
+          : `<button class="btn pri big pgo"${g.have('cube') < g.potCostPer(sl2) || f.auto ? ' disabled' : ''}>🧊 큐브 ${g.potRollCost(sl2)}개 돌리기</button>`}</div>
+      ${!A && !C && g.potLockN(sl2) ? `<div class="mut" style="text-align:center">🔒 잠금 ${g.potLockN(sl2)}줄 · 후보 1개마다 큐브 ${g.potCostPer(sl2)}개</div>` : ''}
       ${f.auto && !A ? '<div class="mut" style="text-align:center">자동 큐브 중에는 직접 돌릴 수 없습니다</div>' : ''}
       ${!A && !C && !f.auto ? g.potIndHtml(sl2) : ''}`;
     box.querySelector('.sfx').addEventListener('click', close);
@@ -2804,6 +2805,7 @@ U.potOpen = function (sl, auto = false) {
     box.querySelectorAll('.pch').forEach((b) => b.addEventListener('click', () => { const P2 = g.potPref(sl2, true), k = b.dataset.k; P2.k = P2.k.includes(k) ? P2.k.filter((x) => x !== k) : [...P2.k, k]; st.key = ''; draw(); }));
     box.querySelector('.pneed')?.addEventListener('change', (e) => { g.potPref(sl2, true).need = +e.target.value; st.key = ''; draw(); });
     box.querySelector('.pgmin')?.addEventListener('change', (e) => { g.potPref(sl2, true).gmin = +e.target.value; st.key = ''; draw(); });
+    box.querySelectorAll('.plk').forEach((b) => b.addEventListener('click', () => { g.potToggleLock(sl2, +b.dataset.i); st.key = ''; draw(); }));
     box.querySelector('.pind')?.addEventListener('click', () => { if (g.potIndStart(sl2)) st.auto = true; st.key = ''; draw(); });
     ui.noWrapSeg?.(box);
   };
@@ -3343,4 +3345,111 @@ P.potIndHtml = function (sl) {
     <div class="mut">지금 선호 옵션 ${this.potPrefCnt(cur?.lines, sl)}줄${done ? ' · <b>이미 조건 달성</b>' : ''}</div>
     <button class="btn big pri pind"${!P2.k.length || done || this.have('cube') <= 0 ? ' disabled' : ''}>▶ 이 부위 자동 큐브 시작</button>
     <div class="mut">한 번에 큐브 3개 · 선호 옵션이 더 많이 붙은 후보(같으면 높은 단계 · 큰 수치)가 나오면 자동으로 바꾸고, 조건을 채우면 멈춥니다</div></div>`;
+};
+
+// ====================== 🔒 잠재능력 줄 잠금 · ⭐ 전체 자동 큐브 선호 옵션 ======================
+// 잠금: 잠근 줄은 새 후보에도 그대로 남음 · 최대 2줄 · 잠근 줄마다 후보 1개에 큐브 +1개
+P.potLocks = function (sl) { return this.s.pot?.lock?.[sl] || []; };
+P.potLockN = function (sl) { return this.potOf(sl) ? this.potLocks(sl).filter(Boolean).length : 0; };
+P.potCostPer = function (sl) { return 1 + this.potLockN(sl); };
+P.potRollCost = function (sl) { const c = this.potCostPer(sl); return (Math.min(3, Math.floor(this.have('cube') / c)) || 3) * c; };
+P.potToggleLock = function (sl, i) {
+  const f = this.potInit();
+  const L = [...this.potLocks(sl)];
+  if (!L[i] && L.filter(Boolean).length >= 2) { this.toast('🔒 잠금은 최대 2줄까지', 'bad'); return; }
+  L[i] = !L[i];
+  f.lock = { ...(f.lock || {}), [sl]: L };
+};
+P.potCurHtml = function (sl, linesHtml, canLock) {
+  const cur = this.potOf(sl), L = this.potLocks(sl);
+  const rows = cur.lines.map((l, i) => `<div class="plrow${L[i] ? ' lk' : ''}">${linesHtml([l])}${canLock ? `<button class="plk" data-i="${i}">${L[i] ? '🔒' : '🔓'}</button>` : L[i] ? '🔒' : ''}</div>`).join('');
+  const same = cur.lines.length === 3 && cur.lines.every((l) => l.k === cur.lines[0].k) ? '<div class="p3">✨ 3줄 같은 옵션!</div>' : '';
+  return rows + same + (canLock ? '<div class="mut" style="font-size:11px">🔓 눌러서 줄 잠금 (최대 2줄 · 잠근 줄마다 후보 1개에 큐브 +1개)</div>' : '');
+};
+P.potRoll3 = function (sl) {
+  const f = this.potInit();
+  if (!SLOTS_SF[sl]) return null;
+  const cost = this.potCostPer(sl);
+  const n = Math.min(3, Math.floor(this.have('cube') / cost));
+  if (n <= 0) return null;
+  this.give('cube', -n * cost);
+  const cur = this.potOf(sl), g0 = cur?.g || 1, L = this.combatLevel(), lk = cur ? this.potLocks(sl) : [];
+  const cand = [];
+  for (let i = 0; i < n; i++) {
+    const up = cur && Math.random() < potUp(g0);
+    const g = cur ? (up ? g0 + 1 : g0) : 1;
+    const lines = potRoll(g, L).map((l, j) => (lk[j] && cur.lines[j] ? { ...cur.lines[j] } : l));
+    cand.push({ g, up: !!up, lines });
+  }
+  f.tries += n * cost;
+  f.cand = cand; f.candSl = sl;
+  return cand;
+};
+// 전체 자동 큐브 선호 옵션: 부위에 따로 정한 선호 옵션이 있으면 그것, 없으면 전체 선호 옵션
+P.potGPref = function () { const f = this.potInit(); f.gpref ||= { k: [], need: 2 }; return f.gpref; };
+P.potPrefFor = function (sl) { const own = this.s.pot?.pref?.[sl]; return own?.k?.length ? own : this.potGPref(); };
+P.potGRank = function (sl, g, lines) {
+  const P2 = this.potPrefFor(sl), f = this.s.pot, Lv = this.combatLevel();
+  const unitFlat = Math.max(1, 0.01 * potRef(Lv));
+  let pc = 0, val = 0;
+  for (const l of lines || []) if (P2.k.includes(l.k)) { pc++; val += /Flat$/.test(l.k) ? (l.v / unitFlat) * 0.01 : l.v; }
+  return [Math.min(g, f.target), Math.min(pc, P2.need), g, pc, val];
+};
+P.potGNeed = function (sl) {
+  const f = this.s.pot, cur = this.potOf(sl), P2 = this.potPrefFor(sl);
+  if ((cur?.g || 0) < f.target) return true;
+  if (!P2.k.length) return false;
+  return cur.lines.filter((l) => P2.k.includes(l.k)).length < P2.need;
+};
+const _potPickG = P.potAutoPick;
+P.potAutoPick = function () {
+  const f = this.potInit();
+  if (f.mode === 'ind') return _potPickG.call(this);
+  const list = f.slot === 'all' ? SLOT_IDS_SF : [f.slot];
+  let best = null;
+  for (const sl of list) if (this.potGNeed(sl) && (best == null || this.potGrade(sl) < this.potGrade(best))) best = sl;
+  return best;
+};
+const _potChoiceG = P.potAutoChoice;
+P.potAutoChoice = function () {
+  const f = this.potInit();
+  if (f.mode === 'ind' || !f.cand || !this.potPrefFor(f.candSl).k.length) return _potChoiceG.call(this);
+  const sl = f.candSl, cur = this.potOf(sl);
+  let best = -1, br = cur ? this.potGRank(sl, cur.g, cur.lines) : null;
+  f.cand.forEach((c, i) => { const r = this.potGRank(sl, c.g, c.lines); if (!br || potCmp(r, br) > 0) { br = r; best = i; } });
+  return best;
+};
+const _potTickLk = P.potAutoTick;
+P.potAutoTick = function (dt) {
+  const f = this.s.pot;
+  if (f?.auto) {
+    const sl = this.potAutoPick();
+    if (sl && this.have('cube') > 0 && this.have('cube') < this.potCostPer(sl)) return this.potAutoStop('큐브가 모자랍니다 (잠금 비용)', 'bad');
+  }
+  return _potTickLk.call(this, dt);
+};
+const _potStartG = P.potAutoStart;
+P.potAutoStart = function () {
+  const f = this.potInit();
+  if (f.mode !== 'ind' && !this.potAutoPick()) { this.toast(`이미 목표 ${potName(f.target)} 단계${this.potGPref().k.length ? ' · 선호 옵션' : ''} 달성`, 'bad'); return false; }
+  return _potStartG.call(this);
+};
+// 잠재 탭: 전체 자동 큐브 선호 옵션 칸
+const _townPotG = U.townFns.pot;
+U.townFns.pot = function (ui, p, g, s) {
+  _townPotG(ui, p, g, s);
+  const GP = g.potGPref();
+  const card = p.querySelector('.pta')?.closest('.card');
+  if (!card) return;
+  const box = h('div', '', `<div style="margin-top:8px"><b>⭐ 선호 옵션</b> <span class="mut">(여러 개 가능 · 안 고르면 단계만 올림)</span></div>
+    <div class="pchips" style="margin-top:4px">${POT_KINDS.map(([k]) => `<button class="pch${GP.k.includes(k) ? ' on' : ''}" data-k="${k}">${POT_KN(k)}</button>`).join('')}</div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><label class="tg">선호 옵션 <select class="pgneed">${[1, 2, 3].map((n) => `<option value="${n}"${GP.need === n ? ' selected' : ''}>${n}줄 이상</option>`).join('')}</select></label></div>
+    <div class="mut">목표 단계에 닿은 뒤에도 선호 옵션이 정한 줄 수만큼 붙을 때까지 계속 돌립니다 · 부위 큐브 창에서 그 부위만 따로 선호 옵션을 정하면 그 부위는 그것을 따릅니다 · 🔒 잠근 줄은 자동 큐브에서도 유지</div>`);
+  box.querySelectorAll('.pch').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.k;
+    GP.k = GP.k.includes(k) ? GP.k.filter((x) => x !== k) : [...GP.k, k];
+    b.classList.toggle('on', GP.k.includes(k));
+  }));
+  box.querySelector('.pgneed').addEventListener('change', (e) => { GP.need = +e.target.value; });
+  card.querySelector('.pta').parentElement.before(box);
 };
