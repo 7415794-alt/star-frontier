@@ -2504,6 +2504,10 @@ const potCol = (g) => POT_GRADES[g - 1]?.[1] || 'var(--mut)';
 export const potUp = (g) => (g >= POT_MAX ? 0 : 0.12 * 0.82 ** (g - 1));
 // 한 줄 수치: % 는 단계에 따라 (21단계 한 줄 약 12%), 고정 수치는 돌린 때의 전투 레벨 기준
 const potPct = (g) => 0.004 + 0.0035 * g ** 1.15;
+// 고정 수치 기준: 그 전투 레벨 플레이어의 보통 스탯 (200레벨 위로는 실제 플레이어 강함 표를 따라감 — 예전엔 레벨^1.9로 너무 커졌음)
+const potRef = (L) => (L <= 200 ? refDefP(Math.max(10, L)) : refDefP(200) * xRatio(X_DEF, Math.min(9999, L), 200));
+// 고정 수치 한 줄 최대값: 같은 단계 % 줄의 약 60% 가치
+const potFlatMax = (g, L, k) => potPct(g) * potRef(L) * 0.6 * 1.15 * (k === 'defFlat' ? 1.5 : 1);
 const POT_KINDS = [
   // [키, 뽑힐 비중, 종류]
   ['atkPct', 10, 'pct'], ['strPct', 10, 'pct'], ['defPct', 10, 'pct'], ['rngPct', 10, 'pct'], ['magPct', 10, 'pct'],
@@ -2518,7 +2522,7 @@ function potLine(g, L) {
   const r = 0.85 + Math.random() * 0.3; // 같은 단계 안에서도 조금씩 다름
   let v;
   if (t === 'pct') v = potPct(g) * r;
-  else if (t === 'flat') v = Math.max(1, Math.round(0.004 * refDefP(Math.max(10, L)) * (0.3 + 0.07 * g ** 1.1) * r * (k === 'defFlat' ? 1.5 : 1)));
+  else if (t === 'flat') v = Math.max(1, Math.round(potFlatMax(g, L, k) * r / 1.15));
   else if (t === 'ls') v = potPct(g) * 0.12 * r;
   else if (t === 'drop') v = potPct(g) * 1.5 * r;
   else v = potPct(g) * 1.2 * r;
@@ -2556,7 +2560,7 @@ P.extraSources = function () { return [..._extraPot.call(this), this.potBonus()]
 P.potScore = function (lines) {
   const st = this.style(), L = this.combatLevel();
   const main = st === 'melee' ? ['atk', 'str'] : st === 'ranged' ? ['rng'] : ['mag'];
-  const unitFlat = Math.max(1, 0.01 * refDefP(Math.max(10, L)));
+  const unitFlat = Math.max(1, 0.01 * potRef(L));
   let sc = 0;
   for (const l of lines || []) {
     const base = l.k.replace(/Pct$|Flat$/, '');
@@ -3177,3 +3181,69 @@ export const XGEAR_T = [
 }
 // 스탯 추천: 레벨 상한 (전투 스킬 · 신성은 9999)
 P.lvMax = function (id) { return EXT_IDS.has(id) ? DIV_MAX : MAX_L; };
+
+// ====================== 🔮 잠재능력 점검: 예전 공식으로 너무 커진 고정 수치 줄을 지금 기준 최대값으로 맞춤 (한 번만) ======================
+const _potInitFix = P.potInit;
+P.potInit = function () {
+  const f = _potInitFix.call(this);
+  if (f.fixV !== 1) {
+    const L = Math.max(10, this.combatLevel());
+    for (const sl of Object.keys(f.sl || {})) {
+      const c = f.sl[sl];
+      c.lines = (c.lines || []).map((l) => (/Flat$/.test(l.k) ? { ...l, v: Math.max(1, Math.min(l.v, Math.round(potFlatMax(c.g, L, l.k)))) } : l));
+    }
+    f.sl = { ...f.sl };
+    f.cand = null; f.candSl = null;
+    f.fixV = 1;
+    this._potB = null;
+    this.dirty?.();
+  }
+  return f;
+};
+
+// ====================== 🦴 신성: 묻던 뼈가 떨어지면 다음 뼈로 자동 교체 ======================
+P.nextBone = function (skip) {
+  let best = null;
+  for (const [id, n] of Object.entries(this.s.bank)) {
+    const it = ITEMS[id];
+    if (it?.kind !== 'bone' || n < 1 || id === skip) continue;
+    if (!best || it.xp > ITEMS[best].xp) best = id;
+  }
+  return best;
+};
+const _buryTickA = P.buryTick;
+P.buryTick = function (dt) {
+  const A = this.s.activity;
+  if (A?.type === 'bury' && this.have(A.bone) < 1 && this.s.autoBone !== false) {
+    const nx = this.nextBone(A.bone);
+    if (nx) {
+      this.s.activity = { ...A, bone: nx };
+      if (!this.quiet) this.toast(`🦴 다음 뼈로: ${ITEMS[nx].name} (x${fmt(this.have(nx))})`, 'loot');
+    }
+  }
+  return _buryTickA.call(this, dt);
+};
+const _tabDivA = U.tabDiv;
+U.tabDiv = function (p) {
+  _tabDivA.call(this, p);
+  const s = this.g.s;
+  const hd = [...p.querySelectorAll('.h')].find((x) => x.textContent.includes('뼈 묻기'));
+  if (!hd) return;
+  const l = h('label', 'tg', `<input type="checkbox"${s.autoBone !== false ? ' checked' : ''}> 🔁 뼈가 떨어지면 다음 뼈(경험치 높은 순)로 자동 교체`);
+  l.querySelector('input').addEventListener('change', (e) => { s.autoBone = e.target.checked; });
+  hd.after(l);
+};
+U.sigX = ((f) => function () { return [...f.call(this), this.g.s.autoBone]; })(U.sigX);
+
+// ====================== 📋 접는 칸(확률표 등)이 화면을 다시 그려도 닫히지 않게 ======================
+{
+  const _rDet = U.render;
+  U.render = function (force) {
+    const p = document.getElementById('panel');
+    const open = new Set();
+    if (p) for (const d of p.querySelectorAll('details[open] > summary')) open.add(d.textContent.trim().slice(0, 14));
+    const r = _rDet.call(this, force);
+    if (p && open.size) for (const d of p.querySelectorAll('details:not([open]) > summary')) if (open.has(d.textContent.trim().slice(0, 14))) d.parentElement.open = true;
+    return r;
+  };
+}
