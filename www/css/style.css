@@ -289,3 +289,4 @@ body.th-adv #expTop { border-bottom: 2px solid #e0a63a; }
 body.th-adv #expTop .ebar > div { background: linear-gradient(90deg, #ffd25a, #ff9a1f); }
 .petln{font-size:.82em;color:#f9c97a}
 .petln.max{color:#86efac}
+.pside{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
