@@ -306,3 +306,16 @@ body.th-adv #expTop .ebar > div { background: linear-gradient(90deg, #ffd25a, #f
 .pchips { display: flex; flex-wrap: wrap; gap: 4px; }
 .pch { background: rgba(0,0,0,.25); color: var(--txt); border: 1px solid var(--line); border-radius: 14px; padding: 5px 9px; font-size: 13px; }
 .pch.on { background: var(--gold); color: #1a1a1a; border-color: var(--gold); font-weight: 700; }
+
+#sfWin .pl { border-radius: 5px; padding: 0 3px; }
+#sfWin .pl.pf { background: rgba(250, 204, 21, .22); color: #fde047; font-weight: 800; }
+#sfWin .pl.px { color: #67e8f9; }
+#sfWin .pl.px.pf { color: #fde047; }
+#sfWin .pfb { font-size: 11px; font-weight: 800; color: #1a1a1a; background: #fde047; border-radius: 8px; padding: 1px 5px; align-self: flex-start; opacity: .75; }
+#sfWin .pfb.full { opacity: 1; }
+#sfWin .potc.pfc { box-shadow: 0 0 0 2px #fde047, 0 0 12px rgba(253, 224, 71, .7); }
+.pch.x { border-color: #67e8f9; }
+.pch.x.on { background: #67e8f9; border-color: #67e8f9; }
+#sfWin .potcands { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#sfWin .potc { min-width: 0; }
+#sfWin .potc .pl, #sfWin .potc .pl .nw { white-space: normal; overflow-wrap: anywhere; word-break: keep-all; }

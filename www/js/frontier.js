@@ -2514,14 +2514,40 @@ const POT_KINDS = [
   ['atkFlat', 6, 'flat'], ['strFlat', 6, 'flat'], ['defFlat', 6, 'flat'], ['rngFlat', 6, 'flat'], ['magFlat', 6, 'flat'],
   ['ls', 4, 'ls'], ['drop', 4, 'drop'], ['bossDmg', 4, 'boss'],
 ];
+// 💠 부위마다 그 부위에서만 나오는 특별 옵션 (실제 전투 스탯으로 들어감)
+// [부위, 키, 이름, 들어가는 스탯들, 배율 (% 줄 기준 · Flat 이면 고정 수치 줄 기준)]
+const POT_SP_LIST = [
+  ['weapon', 'xAll', '모든 공격 능력', ['atkPct', 'strPct', 'rngPct', 'magPct'], 1.0],
+  ['head', 'xDr', '피해 감소', ['dr'], 0.3],
+  ['shoulder', 'xBoss', '보스 피해', ['bossDmg'], 2.2],
+  ['body', 'xDef', '방어', ['defPct'], 1.8],
+  ['legs', 'xMelee', '공격 · 힘', ['atkPct', 'strPct'], 1.1],
+  ['gloves', 'xAllFlat', '모든 공격 능력', ['atkFlat', 'strFlat', 'rngFlat', 'magFlat'], 1.0],
+  ['boots', 'xLs', '생명력 흡수', ['ls'], 0.25],
+  ['belt', 'xDefFlat', '방어', ['defFlat'], 1.8],
+  ['cape', 'xArc', '원거리 · 마법', ['rngPct', 'magPct'], 1.3],
+  ['amulet', 'xDrop', '드롭률', ['drop'], 3],
+  ['ring', 'xDrLs', '피해 감소 · 생명력 흡수', ['dr', 'ls'], 0.12],
+  ['earring', 'xEvery', '모든 능력', ['atkPct', 'strPct', 'defPct', 'rngPct', 'magPct'], 0.7],
+];
+const POT_SP = Object.fromEntries(POT_SP_LIST.map(([sl, k, n, keys, m]) => [k, { sl, k, n, keys, m }]));
+const POT_SP_OF = Object.fromEntries(POT_SP_LIST.map((x) => [x[0], x[1]]));
+const POT_SP_W = 4; // 뽑힐 비중 (생명력 흡수 · 드롭률 줄과 같음)
+const potKinds = (sl) => (POT_SP_OF[sl] ? [...POT_KINDS, [POT_SP_OF[sl], POT_SP_W, 'sp']] : POT_KINDS);
 const POT_W = POT_KINDS.reduce((a, k) => a + k[1], 0);
-function potLine(g, L, same) {
-  let x = Math.random() * POT_W, kd = POT_KINDS[0];
-  if (same) kd = POT_KINDS.find((k) => k[0] === same) || kd;
-  else for (const k of POT_KINDS) { x -= k[1]; if (x < 0) { kd = k; break; } }
+function potLine(g, L, same, sl) {
+  const KS = potKinds(sl), W = POT_W + (POT_SP_OF[sl] ? POT_SP_W : 0);
+  let x = Math.random() * W, kd = KS[0];
+  if (same) kd = KS.find((k) => k[0] === same) || kd;
+  else for (const k of KS) { x -= k[1]; if (x < 0) { kd = k; break; } }
   const [k, , t] = kd;
   const r = 0.85 + Math.random() * 0.3; // 같은 단계 안에서도 조금씩 다름
   let v;
+  if (t === 'sp') {
+    const X = POT_SP[k];
+    v = /Flat$/.test(k) ? Math.max(1, Math.round(potFlatMax(g, L, X.keys[0]) * r / 1.15 * X.m)) : Math.round(potPct(g) * X.m * r * 10000) / 10000;
+    return { k, v };
+  }
   if (t === 'pct') v = potPct(g) * r;
   else if (t === 'flat') v = Math.max(1, Math.round(potFlatMax(g, L, k) * r / 1.15));
   else if (t === 'ls') v = potPct(g) * 0.12 * r;
@@ -2533,12 +2559,14 @@ function potLine(g, L, same) {
 // 줄 3개: 첫 줄은 그 단계, 둘째 · 셋째 줄은 25% 확률로 그 단계 · 아니면 한 단계 아래
 // 둘째 · 셋째 줄은 15% 확률로 첫 줄과 같은 옵션 (3줄 모두 같은 옵션도 나올 수 있음)
 const POT_SAME = 0.15;
-function potRoll(g, L) {
+function potRoll(g, L, sl) {
   const gs = [g, ...[0, 1].map(() => (Math.random() < 0.25 || g === 1 ? g : g - 1))];
-  const first = potLine(gs[0], L);
-  return [first, ...gs.slice(1).map((gg) => potLine(gg, L, Math.random() < POT_SAME ? first.k : null))];
+  const first = potLine(gs[0], L, null, sl);
+  return [first, ...gs.slice(1).map((gg) => potLine(gg, L, Math.random() < POT_SAME ? first.k : null, sl))];
 }
 const potLineTxt = (l) => {
+  const X = POT_SP[l.k];
+  if (X) return /Flat$/.test(l.k) ? `💠 ${X.n} +${fmt(l.v)}` : `💠 ${X.n} +${(l.v * 100).toFixed(l.v < 0.01 ? 2 : 1)}%`;
   const n = SPN_A[l.k] || l.k;
   return /Flat$/.test(l.k) ? `${n} +${fmt(l.v)}` : `${n} +${(l.v * 100).toFixed(l.v < 0.01 ? 2 : 1)}%`;
 };
@@ -2555,14 +2583,20 @@ P.potBonus = function () {
   const key = JSON.stringify(S);
   if (this._potB?.key === key) return this._potB.v;
   const v = {};
-  for (const sl of Object.keys(S)) for (const l of S[sl].lines || []) v[l.k] = (v[l.k] || 0) + l.v;
+  for (const sl of Object.keys(S)) for (const l of S[sl].lines || []) {
+    const X = POT_SP[l.k];
+    if (X) for (const k of X.keys) v[k] = (v[k] || 0) + l.v;
+    else v[l.k] = (v[l.k] || 0) + l.v;
+  }
   this._potB = { key, v };
   return v;
 };
 const _extraPot = P.extraSources;
 P.extraSources = function () { return [..._extraPot.call(this), this.potBonus()]; };
 // 후보 점수 (자동 선택용 · 가벼운 계산): 지금 전투 방식의 주 능력 · 방어 위주
-P.potScore = function (lines) {
+P.potScore = function (lines0) {
+  const lines = [];
+  for (const l of lines0 || []) { const X = POT_SP[l.k]; if (X) for (const k of X.keys) lines.push({ k: k === 'dr' ? 'ls' : k, v: k === 'dr' ? l.v * 0.8 : l.v }); else lines.push(l); }
   const st = this.style(), L = this.combatLevel();
   const main = st === 'melee' ? ['atk', 'str'] : st === 'ranged' ? ['rng'] : ['mag'];
   const unitFlat = Math.max(1, 0.01 * potRef(L));
@@ -2746,7 +2780,7 @@ U.potOpen = function (sl, auto = false) {
     const sl2 = st.sl, cur = g.potOf(sl2), it = ITEMS[g.s.equip[sl2]];
     const PF = A && f.mode === 'ind' ? g.potPref(sl2) : g.potPrefFor(sl2);
     const FL = st.flash && st.flash.sl === sl2 && performance.now() - st.flash.at < 2500 ? st.flash : null;
-    const linesHtml = (lines) => lines.map((l) => `<div${PF.k.includes(l.k) ? ' class="pf"' : ''}>${PF.k.includes(l.k) ? '⭐' : ''}${potLineTxt(l)}</div>`).join('') + (lines.length === 3 && lines.every((l) => l.k === lines[0].k) ? '<div class="p3">✨ 3줄 같은 옵션!</div>' : '');
+    const linesHtml = (lines) => lines.map((l) => `<div class="pl${PF.k.includes(l.k) ? ' pf' : ''}${POT_SP[l.k] ? ' px' : ''}">${PF.k.includes(l.k) ? '⭐ ' : ''}${potLineTxt(l)}</div>`).join('') + (lines.length === 3 && lines.every((l) => l.k === lines[0].k) ? '<div class="p3">✨ 3줄 같은 옵션!</div>' : '');
     const C = !A && f.cand && f.candSl === sl2 ? f.cand : null;
     const L = A ? f.last : null;
     // 큐브 개수는 다시 그리지 않고 글자만 바꿈 (전투 중 큐브가 떨어질 때마다 후보가 다시 그려져서 움직이고 눌리지 않던 문제)
@@ -2762,8 +2796,8 @@ U.potOpen = function (sl, auto = false) {
     const nw = showC && showC !== st.lastC ? ' nw' : ''; // 새 후보일 때만 튀어나오는 효과
     st.lastC = showC;
     if (showC) {
-      candHtml = `<div class="potcands">${showC.map((c, i) => `<div class="potc${nw}${c.up ? ' up' : ''}${(A && L?.pick === i) || (!C && FL?.pick === i) ? ' pick' : ''}" data-i="${i}" style="border-color:${potCol(c.g)}">
-        <div class="potg" style="color:${potCol(c.g)}">${c.up ? '⬆ 등업! ' : ''}${potName(c.g)}</div>${linesHtml(c.lines)}${C ? '<button class="btn sm pri pk">이걸로</button>' : ''}</div>`).join('')}</div>`;
+      candHtml = `<div class="potcands">${showC.map((c, i) => `<div class="potc${PF.k.length && c.lines.filter((l) => PF.k.includes(l.k)).length >= (PF.need || 1) ? ' pfc' : ''}${nw}${c.up ? ' up' : ''}${(A && L?.pick === i) || (!C && FL?.pick === i) ? ' pick' : ''}" data-i="${i}" style="border-color:${potCol(c.g)}">
+        <div class="potg" style="color:${potCol(c.g)}">${c.up ? '⬆ 등업! ' : ''}${potName(c.g)}</div>${(() => { const n = c.lines.filter((l) => PF.k.includes(l.k)).length; return n ? `<div class="pfb${n >= (PF.need || 1) ? ' full' : ''}">⭐ 선호 ${n}줄</div>` : ''; })()}${linesHtml(c.lines)}${C ? '<button class="btn sm pri pk">이걸로</button>' : ''}</div>`).join('')}</div>`;
     }
     const sess = `이번에 큐브 ${fmt(f.tries - st.tries0)}개 · 등업 ${fmt(f.ups - st.ups0)}번`;
     const g0 = cur?.g || 0;
@@ -3278,7 +3312,7 @@ U.sigX = ((f) => function () { return [...f.call(this), this.g.s.autoBone]; })(U
 }
 
 // ====================== 🔮 이 부위 자동 큐브: 선호 옵션을 골라 원하는 줄 수가 나올 때까지 ======================
-const POT_KN = (k) => `${SPN_A[k] || k}${/Pct$/.test(k) ? ' %' : /Flat$/.test(k) ? ' +' : ''}`;
+const POT_KN = (k) => (POT_SP[k] ? `💠${POT_SP[k].n}${/Flat$/.test(k) ? ' +' : ' %'}` : `${SPN_A[k] || k}${/Pct$/.test(k) ? ' %' : /Flat$/.test(k) ? ' +' : ''}`);
 P.potPref = function (sl, make) {
   const f = this.potInit();
   const P2 = f.pref?.[sl];
@@ -3343,7 +3377,7 @@ P.potAutoStop = function (why, kind) {
 // 큐브 창 아래 '이 부위 자동 큐브' 칸
 P.potIndHtml = function (sl) {
   const P2 = this.potPref(sl), cur = this.potOf(sl);
-  const chips = POT_KINDS.map(([k]) => `<button class="pch${P2.k.includes(k) ? ' on' : ''}" data-k="${k}">${POT_KN(k)}</button>`).join('');
+  const chips = potKinds(sl).map(([k]) => `<button class="pch${POT_SP[k] ? ' x' : ''}${P2.k.includes(k) ? ' on' : ''}" data-k="${k}">${POT_KN(k)}</button>`).join('');
   const gs = [`<option value="0"${!P2.gmin ? ' selected' : ''}>상관없음</option>`, ...POT_GRADES.map((x, i) => `<option value="${i + 1}"${P2.gmin === i + 1 ? ' selected' : ''}>${i + 1}단계 ${x[0]} 이상</option>`)].join('');
   const done = this.potIndDone(sl);
   return `<div class="potind"><div><b>🤖 이 부위 자동 큐브</b> <span class="mut">선호 옵션을 누르세요 (여러 개 가능)</span></div>
@@ -3386,7 +3420,7 @@ P.potRoll3 = function (sl) {
   for (let i = 0; i < n; i++) {
     const up = cur && Math.random() < potUp(g0);
     const g = cur ? (up ? g0 + 1 : g0) : 1;
-    const lines = potRoll(g, L).map((l, j) => (lk[j] && cur.lines[j] ? { ...cur.lines[j] } : l));
+    const lines = potRoll(g, L, sl).map((l, j) => (lk[j] && cur.lines[j] ? { ...cur.lines[j] } : l));
     cand.push({ g, up: !!up, lines });
   }
   f.tries += n * cost;
@@ -3450,7 +3484,7 @@ U.townFns.pot = function (ui, p, g, s) {
   const card = p.querySelector('.pta')?.closest('.card');
   if (!card) return;
   const box = h('div', '', `<div style="margin-top:8px"><b>⭐ 선호 옵션</b> <span class="mut">(여러 개 가능 · 안 고르면 단계만 올림)</span></div>
-    <div class="pchips" style="margin-top:4px">${POT_KINDS.map(([k]) => `<button class="pch${GP.k.includes(k) ? ' on' : ''}" data-k="${k}">${POT_KN(k)}</button>`).join('')}</div>
+    <div class="pchips" style="margin-top:4px">${[...POT_KINDS, ...POT_SP_LIST.map((x) => [x[1]])].map(([k]) => `<button class="pch${POT_SP[k] ? ' x' : ''}${GP.k.includes(k) ? ' on' : ''}" data-k="${k}">${POT_SP[k] ? `${SLOTS_SF[POT_SP[k].sl].icon}` : ''}${POT_KN(k)}</button>`).join('')}</div>
     <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><label class="tg">선호 옵션 <select class="pgneed">${[1, 2, 3].map((n) => `<option value="${n}"${GP.need === n ? ' selected' : ''}>${n}줄 이상</option>`).join('')}</select></label></div>
     <div class="mut">목표 단계에 닿은 뒤에도 선호 옵션이 정한 줄 수만큼 붙을 때까지 계속 돌립니다 · 부위 큐브 창에서 그 부위만 따로 선호 옵션을 정하면 그 부위는 그것을 따릅니다 · 🔒 잠근 줄은 자동 큐브에서도 유지</div>`);
   box.querySelectorAll('.pch').forEach((b) => b.addEventListener('click', () => {
