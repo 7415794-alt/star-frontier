@@ -2551,7 +2551,12 @@ const POT_SP_LIST = [
 ];
 const POT_SP = Object.fromEntries(POT_SP_LIST.map(([sl, k, n, keys, m]) => [k, { sl, k, n, keys, m }]));
 const POT_SP_OF = Object.fromEntries(POT_SP_LIST.map((x) => [x[0], x[1]]));
-const POT_SP_W = 4; // 뽑힐 비중 (생명력 흡수 · 드롭률 줄과 같음)
+const POT_SP_W = 2.5; // 뽑힐 비중 (일반 옵션보다 조금 낮게 · 잠재 · 에디셔널 똑같이)
+// ✳️ 에디셔널 잠재능력: 같은 큐브 · 같은 단계 · 같은 옵션(특별 옵션 포함) · 수치는 절반 · 따로 등업
+const POT_AD_M = 0.5;
+const potKey = (f) => (f?.kind === 'ad' ? 'ad' : 'sl');
+const potPK = (g, sl) => (g.s.pot?.kind === 'ad' ? 'ad_' + sl : sl); // 선호 옵션 · 잠금은 잠재 / 에디셔널 따로
+const potKindName = (f) => (f?.kind === 'ad' ? '에디셔널' : '잠재능력');
 const potKinds = (sl) => (POT_SP_OF[sl] ? [...POT_KINDS, [POT_SP_OF[sl], POT_SP_W, 'sp']] : POT_KINDS);
 const POT_W = POT_KINDS.reduce((a, k) => a + k[1], 0);
 function potLine(g, L, same, sl) {
@@ -2593,16 +2598,17 @@ P.potInit = function () {
   this.s.pot ||= { sl: {}, auto: false, target: 5, slot: 'all', autoUp: true, keepBetter: true, tries: 0, ups: 0, cand: null, candSl: null };
   const f = this.s.pot;
   f.sl ||= {};
+  f.ad ||= {};
   return f;
 };
-P.potOf = function (sl) { return this.s.pot?.sl?.[sl] || null; };
+P.potOf = function (sl) { const f = this.s.pot; return f?.[potKey(f)]?.[sl] || null; };
 P.potGrade = function (sl) { return this.potOf(sl)?.g || 0; };
 P.potBonus = function () {
-  const S = this.s.pot?.sl || {};
-  const key = JSON.stringify(S);
+  const S = this.s.pot?.sl || {}, AD = this.s.pot?.ad || {};
+  const key = JSON.stringify([S, AD]);
   if (this._potB?.key === key) return this._potB.v;
   const v = {};
-  for (const sl of Object.keys(S)) for (const l of S[sl].lines || []) {
+  for (const T of [S, AD]) for (const sl of Object.keys(T)) for (const l of T[sl].lines || []) {
     const X = POT_SP[l.k];
     if (X) for (const k of X.keys) v[k] = (v[k] || 0) + l.v;
     else v[l.k] = (v[l.k] || 0) + l.v;
@@ -2651,8 +2657,9 @@ P.potPick = function (i) {
   const f = this.potInit(), c = f.cand?.[i], sl = f.candSl;
   if (c && sl) {
     const old = this.potGrade(sl);
-    f.sl = { ...f.sl, [sl]: { g: c.g, lines: c.lines } };
-    if (c.g > old && old) { f.ups++; this.toast(`🔮 ${SLOTS_SF[sl].name} 잠재능력 등업! ${potName(old)} → ${potName(c.g)}`, 'pet'); if (c.g >= 12 && this.s.cele !== false) this.celebrate?.(`🔮 ${SLOTS_SF[sl].name} ${potName(c.g)} 등급!`); }
+    const K = potKey(f);
+    f[K] = { ...f[K], [sl]: { g: c.g, lines: c.lines } };
+    if (c.g > old && old) { f.ups++; this.toast(`🔮 ${SLOTS_SF[sl].name} ${potKindName(f)} 등업! ${potName(old)} → ${potName(c.g)}`, 'pet'); if (c.g >= 12 && this.s.cele !== false) this.celebrate?.(`🔮 ${SLOTS_SF[sl].name} ${potName(c.g)} 등급!`); }
     this.dirty();
   }
   f.cand = null; f.candSl = null;
@@ -2743,7 +2750,7 @@ function townPot(ui, p, g, s) {
   p.appendChild(h('div', 'card', `<b>🔮 잠재능력</b> <span class="mut">🧊 큐브 ${fmt(g.have('cube'))}개 · 돌린 횟수 ${fmt(f.tries)} · 등업 ${fmt(f.ups)}</span>
     <div class="mut">부위마다 <b>${POT_MAX}단계</b> (${potName(1)} → ${potName(POT_MAX)}) · 큐브 1개 = 후보 1개 · <b>한 번에 3개</b>를 돌려서 마음에 드는 것을 고릅니다 · 잠재능력은 부위에 붙어서 장비를 바꿔도 그대로</div>
     <div class="mut">🧊 큐브: 모든 몬스터 전리품 (보스는 더 자주 · 여러 개) · 쿠폰</div>
-    <div style="margin-top:6px">잠재능력 합계: <span class="sp">${bt || '없음'}</span></div>`));
+    <div style="margin-top:6px">잠재능력 + ✳️ 에디셔널 합계: <span class="sp">${bt || '없음'}</span></div>`));
   // 자동
   const a = h('div', 'card', `<b>🤖 자동 큐브</b> ${f.auto ? '<span class="sp">진행 중…</span>' : ''}
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">
@@ -2776,7 +2783,7 @@ function townPot(ui, p, g, s) {
 U.townExtra = [...U.townExtra, ['pot', '🔮 잠재']];
 U.townFns.pot = townPot;
 const _sigPot = U.sigX;
-U.sigX = function () { const f = this.g.s.pot; const on = this.tab === 'town' && this.town === 'pot'; return [..._sigPot.call(this), f ? JSON.stringify(Object.values(f.sl).map((x) => x.g)) : '', f?.auto, on ? this.g.have('cube') : 0, f?.target, f?.slot]; };
+U.sigX = function () { const f = this.g.s.pot; const on = this.tab === 'town' && this.town === 'pot'; return [..._sigPot.call(this), f ? JSON.stringify([Object.values(f.sl).map((x) => x.g), Object.values(f.ad || {}).map((x) => x.g)]) : '', f?.kind, f?.auto, on ? this.g.have('cube') : 0, f?.target, f?.slot]; };
 
 // 큐브 창 (강화 창처럼 따로 뜸): 후보 3개 중 고르기 · 자동이면 진행 상황
 U.potOpen = function (sl, auto = false) {
@@ -2805,7 +2812,7 @@ U.potOpen = function (sl, auto = false) {
     // 큐브 개수는 다시 그리지 않고 글자만 바꿈 (전투 중 큐브가 떨어질 때마다 후보가 다시 그려져서 움직이고 눌리지 않던 문제)
     const cubes = g.have('cube');
     box.querySelectorAll('.pcube').forEach((e) => { e.textContent = fmt(cubes); });
-    const key = JSON.stringify([A, f.auto, f.mode, sl2, cur, C ? 1 : 0, A ? cubes : Math.min(9, cubes), f.tries, f.stop, f.autoUp, f.keepBetter, PF, g.potPref(sl2), g.potLocks(sl2), !!FL, st.stopMsg]);
+    const key = JSON.stringify([f.kind, A, f.auto, f.mode, sl2, cur, C ? 1 : 0, A ? cubes : Math.min(9, cubes), f.tries, f.stop, f.autoUp, f.keepBetter, PF, g.potPref(sl2), g.potLocks(sl2), !!FL, st.stopMsg]);
     if (key === st.key) return;
     st.key = key;
     const slotSel = A ? '' : `<select class="sfsl">${SLOT_IDS_SF.map((x) => `<option value="${x}"${x === sl2 ? ' selected' : ''}>${SLOTS_SF[x].icon} ${SLOTS_SF[x].name} · ${g.potGrade(x) ? potName(g.potGrade(x)) : '없음'}</option>`).join('')}</select>`;
@@ -2822,7 +2829,8 @@ U.potOpen = function (sl, auto = false) {
     const g0 = cur?.g || 0;
     const sy = box.scrollTop;
     queueMicrotask(() => { box.scrollTop = sy; });
-    box.innerHTML = `<div class="sfhd"><b>${A ? (f.mode === 'ind' ? '🤖 이 부위 자동 큐브' : '🤖 자동 큐브') : '🔮 잠재능력'}</b><button class="btn sm sfx">✕ 닫기</button></div>
+    box.innerHTML = `<div class="sfhd"><b>${A ? `${f.mode === 'ind' ? '🤖 이 부위 자동 큐브' : '🤖 자동 큐브'} · ${potKindName(f)}` : f.kind === 'ad' ? '✳️ 에디셔널 잠재능력' : '🔮 잠재능력'}</b><button class="btn sm sfx">✕ 닫기</button></div>
+      ${A ? '' : g.potKindHtml()}
       ${slotSel}
       <div class="sfmain"><div class="sfic">${SLOTS_SF[sl2].icon}</div><div class="sfnm">${SLOTS_SF[sl2].name} <span class="mut">${it ? it.name : '비어 있음'}</span></div>${curHtml}</div>
       ${!A && st.stopMsg ? `<div class="sp" style="text-align:center">⏹ 자동 큐브 멈춤: ${st.stopMsg}</div>` : ''}
@@ -2841,6 +2849,7 @@ U.potOpen = function (sl, auto = false) {
       ${f.auto && !A ? '<div class="mut" style="text-align:center">자동 큐브 중에는 직접 돌릴 수 없습니다</div>' : ''}
       ${!A && !C && !f.auto ? g.potIndHtml(sl2) : ''}`;
     box.querySelector('.sfx').addEventListener('click', close);
+    box.querySelectorAll('.pkd').forEach((b) => b.addEventListener('click', () => { if (g.potSetKind(b.dataset.k)) { st.flash = null; st.stopMsg = null; st.key = ''; draw(); } }));
     box.querySelector('.sfsl')?.addEventListener('change', (e) => { if (f.cand) g.potPick(-1); st.sl = e.target.value; st.key = ''; draw(); });
     box.querySelector('.ptu')?.addEventListener('change', (e) => { f.autoUp = e.target.checked; st.key = ''; draw(); });
     box.querySelector('.pgo')?.addEventListener('click', () => {
@@ -3334,13 +3343,13 @@ U.sigX = ((f) => function () { return [...f.call(this), this.g.s.autoBone]; })(U
 const POT_KN = (k) => (POT_SP[k] ? `💠${POT_SP[k].n}${/Flat$/.test(k) ? ' +' : ' %'}` : `${SPN_A[k] || k}${/Pct$/.test(k) ? ' %' : /Flat$/.test(k) ? ' +' : ''}`);
 P.potPref = function (sl, make) {
   const f = this.potInit();
-  const P2 = f.pref?.[sl];
+  const P2 = f.pref?.[potPK(this, sl)];
   if (P2) return P2;
   const d = { k: [], need: 2, gmin: 0 };
-  if (make) { f.pref = { ...(f.pref || {}), [sl]: d }; }
+  if (make) { f.pref = { ...(f.pref || {}), [potPK(this, sl)]: d }; }
   return d;
 };
-P.potPrefTxt = function (sl) { const P2 = this.s.pot?.pref?.[sl]; return P2?.k?.length ? P2.k.map(POT_KN).join(', ') : ''; };
+P.potPrefTxt = function (sl) { const P2 = this.s.pot?.pref?.[potPK(this, sl)]; return P2?.k?.length ? P2.k.map(POT_KN).join(', ') : ''; };
 P.potPrefCnt = function (lines, sl) {
   const k = this.potPref(sl ?? this.s.pot?.indSl).k;
   return (lines || []).filter((l) => k.includes(l.k)).length;
@@ -3410,7 +3419,7 @@ P.potIndHtml = function (sl) {
 
 // ====================== 🔒 잠재능력 줄 잠금 · ⭐ 전체 자동 큐브 선호 옵션 ======================
 // 잠금: 잠근 줄은 새 후보에도 그대로 남음 · 최대 2줄 · 잠근 줄마다 후보 1개에 큐브 +1개
-P.potLocks = function (sl) { return this.s.pot?.lock?.[sl] || []; };
+P.potLocks = function (sl) { return this.s.pot?.lock?.[potPK(this, sl)] || []; };
 P.potLockN = function (sl) { return this.potOf(sl) ? this.potLocks(sl).filter(Boolean).length : 0; };
 P.potCostPer = function (sl) { return 1 + this.potLockN(sl); };
 P.potRollCost = function (sl) { const c = this.potCostPer(sl); return (Math.min(3, Math.floor(this.have('cube') / c)) || 3) * c; };
@@ -3419,7 +3428,7 @@ P.potToggleLock = function (sl, i) {
   const L = [...this.potLocks(sl)];
   if (!L[i] && L.filter(Boolean).length >= 2) { this.toast('🔒 잠금은 최대 2줄까지', 'bad'); return; }
   L[i] = !L[i];
-  f.lock = { ...(f.lock || {}), [sl]: L };
+  f.lock = { ...(f.lock || {}), [potPK(this, sl)]: L };
 };
 P.potCurHtml = function (sl, linesHtml, canLock) {
   const cur = this.potOf(sl), L = this.potLocks(sl);
@@ -3439,7 +3448,9 @@ P.potRoll3 = function (sl) {
   for (let i = 0; i < n; i++) {
     const up = cur && Math.random() < potUp(g0);
     const g = cur ? (up ? g0 + 1 : g0) : 1;
-    const lines = potRoll(g, L, sl).map((l, j) => (lk[j] && cur.lines[j] ? { ...cur.lines[j] } : l));
+    const ad = f.kind === 'ad';
+    const lines = potRoll(g, L, sl).map((l) => (ad ? { k: l.k, v: /Flat$/.test(l.k) ? Math.max(1, Math.round(l.v * POT_AD_M)) : Math.round(l.v * POT_AD_M * 10000) / 10000 } : l))
+      .map((l, j) => (lk[j] && cur.lines[j] ? { ...cur.lines[j] } : l));
     cand.push({ g, up: !!up, lines });
   }
   f.tries += n * cost;
@@ -3448,7 +3459,7 @@ P.potRoll3 = function (sl) {
 };
 // 전체 자동 큐브 선호 옵션: 부위에 따로 정한 선호 옵션이 있으면 그것, 없으면 전체 선호 옵션
 P.potGPref = function () { const f = this.potInit(); f.gpref ||= { k: [], need: 2 }; return f.gpref; };
-P.potPrefFor = function (sl) { const own = this.s.pot?.pref?.[sl]; return own?.k?.length ? own : this.potGPref(); };
+P.potPrefFor = function (sl) { const own = this.s.pot?.pref?.[potPK(this, sl)]; return own?.k?.length ? own : this.potGPref(); };
 P.potGRank = function (sl, g, lines) {
   const P2 = this.potPrefFor(sl), f = this.s.pot, Lv = this.combatLevel();
   const unitFlat = Math.max(1, 0.01 * potRef(Lv));
@@ -3513,4 +3524,36 @@ U.townFns.pot = function (ui, p, g, s) {
   }));
   box.querySelector('.pgneed').addEventListener('change', (e) => { GP.need = +e.target.value; });
   card.querySelector('.pta').parentElement.before(box);
+};
+
+// ====================== ✳️ 에디셔널 잠재능력: 잠재 / 에디셔널 전환 ======================
+P.potSetKind = function (k) {
+  const f = this.potInit();
+  k = k === 'ad' ? 'ad' : 'main';
+  if ((f.kind || 'main') === k) return false;
+  if (f.auto) { this.toast('자동 큐브 중에는 바꿀 수 없습니다', 'bad'); return false; }
+  if (f.cand) { this.toast('먼저 후보를 고르거나 지금 것 유지를 눌러 주세요', 'bad'); return false; }
+  f.kind = k; f.mode = null;
+  return true;
+};
+P.potKindHtml = function () {
+  const ad = this.s.pot?.kind === 'ad';
+  return `<div class="pkind"><button class="pkd${ad ? '' : ' on'}" data-k="main">🔮 잠재능력</button><button class="pkd ad${ad ? ' on' : ''}" data-k="ad">✳️ 에디셔널</button></div>`;
+};
+// 잠재 탭: 맨 위에 전환 버튼 · 에디셔널 설명
+const _townPotAd = U.townFns.pot;
+U.townFns.pot = function (ui, p, g, s) {
+  _townPotAd(ui, p, g, s);
+  const ad = g.s.pot?.kind === 'ad';
+  const box = h('div', 'card', `${g.potKindHtml()}<div class="mut" style="margin-top:6px">${ad
+    ? '✳️ <b>에디셔널 잠재능력</b>: 같은 🧊 큐브 사용 · 단계 · 옵션(💠 특별 옵션 포함)은 잠재능력과 같고 <b>수치는 절반</b> · 단계는 따로 오름 · 아래 부위 목록 · 자동 큐브 · 선호 옵션 · 잠금 모두 에디셔널 기준'
+    : '🔮 <b>잠재능력</b>을 보고 있습니다 · ✳️ 에디셔널로 바꾸면 같은 큐브로 두 번째 잠재(수치 절반)를 돌립니다'}</div>`);
+  box.querySelectorAll('.pkd').forEach((b) => b.addEventListener('click', () => { if (g.potSetKind(b.dataset.k)) { ui._rT = 0; ui.render(true); } }));
+  const first = p.querySelector('.card');
+  if (first) first.after(box); else p.prepend(box);
+};
+// 장비 칸 배지: 보고 있는 쪽과 상관없이 잠재 단계 + 에디셔널 단계 (작게)
+P.potBadgeHtml = function (sl) {
+  const f = this.s.pot, m = f?.sl?.[sl]?.g || 0, a = f?.ad?.[sl]?.g || 0;
+  return potBadge(m) + (a ? `<span class="potb" style="color:${potCol(a)};border-color:${potCol(a)}">✳️${a}</span>` : '');
 };
