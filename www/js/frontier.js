@@ -2580,11 +2580,11 @@ function potLine(g, L, same, sl) {
   if (t !== 'flat') v = Math.round(v * 10000) / 10000;
   return { k, v };
 }
-// 줄 3개: 첫 줄은 그 단계, 둘째 · 셋째 줄은 25% 확률로 그 단계 · 아니면 한 단계 아래
+// 줄 3개: 첫 줄은 그 단계, 둘째 줄 20% · 셋째 줄 5% 확률로 그 단계 · 아니면 한 단계 아래
 // 둘째 · 셋째 줄은 15% 확률로 첫 줄과 같은 옵션 (3줄 모두 같은 옵션도 나올 수 있음)
 const POT_SAME = 0.15;
 function potRoll(g, L, sl) {
-  const gs = [g, ...[0, 1].map(() => (Math.random() < 0.25 || g === 1 ? g : g - 1))];
+  const gs = [g, ...[0.2, 0.05].map((pr) => (Math.random() < pr || g === 1 ? g : g - 1))]; // 둘째 줄 20% · 셋째 줄 5% 같은 단계
   const first = potLine(gs[0], L, null, sl);
   return [first, ...gs.slice(1).map((gg) => potLine(gg, L, Math.random() < POT_SAME ? first.k : null, sl))];
 }
@@ -2978,7 +2978,7 @@ P.divMax = DIV_MAX;
 P.divXpAt = (L) => DIV_XP[Math.min(DIV_MAX, L)];
 // 신성 보너스: 공격 · 힘 · 원거리 · 마법 고정 +0.9 x 레벨^1.2 (방어는 1.5배) · 모두 % (1000레벨까지 레벨마다 +0.04%, 그 뒤로 +0.01%)
 export const divBonusAt = (L) => {
-  const f = Math.round(0.9 * L ** 1.2), pc = 0.0004 * Math.min(L, 1000) + 0.0001 * Math.max(0, L - 1000);
+  const f = Math.round(L <= 1000 ? 0.9 * L ** 1.2 : 0.9 * 1000 ** 1.2 + 4.3 * (L - 1000)), pc = 0.0004 * Math.min(L, 1000) + 0.0001 * Math.max(0, L - 1000);
   return { atkFlat: f, strFlat: f, rngFlat: f, magFlat: f, defFlat: Math.round(f * 1.5), atkPct: pc, strPct: pc, rngPct: pc, magPct: pc, defPct: pc };
 };
 P.divBonus = function () {
@@ -3557,3 +3557,27 @@ P.potBadgeHtml = function (sl) {
   const f = this.s.pot, m = f?.sl?.[sl]?.g || 0, a = f?.ad?.[sl]?.g || 0;
   return potBadge(m) + (a ? `<span class="potb" style="color:${potCol(a)};border-color:${potCol(a)}">✳️${a}</span>` : '');
 };
+
+// ====================== 📈 성장 곡선: 200레벨 뒤로 100레벨마다 필요 경험치가 10%씩 더 가파르게 (최대 25구간 · 약 10.8배) ======================
+// 지금 레벨과 진행 %는 그대로 옮김 (한 번만)
+const OLD_DIV_XP = DIV_XP.slice();
+{
+  const s200 = XP_T[MAX_L] - XP_T[MAX_L - 1];
+  for (let L = MAX_L + 1; L <= DIV_MAX; L++) DIV_XP[L] = Math.floor(DIV_XP[L - 1] + s200 * (1 + (L - MAX_L) / 250) * 1.1 ** Math.min(25, Math.floor((L - MAX_L) / 100)));
+}
+const oldDivLevelOf = (xp) => { let lo = 1, hi = DIV_MAX; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (xp >= OLD_DIV_XP[mid]) lo = mid; else hi = mid - 1; } return lo; };
+P.xpCurveFix = function () {
+  const s = this.s;
+  if (s.xpCurve === 2) return;
+  for (const id of EXT_IDS) {
+    const xp = s.xp?.[id] || 0;
+    if (xp <= OLD_DIV_XP[MAX_L]) continue; // 200레벨까지는 표가 같음
+    const L = oldDivLevelOf(xp);
+    const fr = L >= DIV_MAX ? 0 : (xp - OLD_DIV_XP[L]) / (OLD_DIV_XP[L + 1] - OLD_DIV_XP[L]);
+    s.xp[id] = Math.floor(DIV_XP[L] + (L >= DIV_MAX ? 0 : fr * (DIV_XP[L + 1] - DIV_XP[L])));
+  }
+  s.xpCurve = 2;
+  this.rt.cache = null; this._dvB = null;
+};
+const _townInitXp = P.townInit;
+P.townInit = function (...a) { this.xpCurveFix(); return _townInitXp.apply(this, a); };
