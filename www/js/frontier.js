@@ -1840,22 +1840,24 @@ U.sigX = function () { return [..._sigCP.call(this), this.g.s.cpUsed || 0, this.
 // 강화 수치는 '부위'에 붙음 → 더 좋은 장비로 바꿔 껴도 별은 그대로
 import { SLOTS as SLOTS_SF, SLOT_IDS as SLOT_IDS_SF } from './data.js';
 const SF_MAX = 30;
-const SF_SAFE = [15, 20, 25]; // 실패해도 떨어지지 않는 별
-const sfBreakTo = (k) => (k < 22 ? 12 : 20); // 파괴되면 이 별로 (22성부터는 20성)
-const SF_HI = [0.32, 0.3, 0.28, 0.26, 0.24, 0.22, 0.2, 0.18]; // 22 ~ 29성 성공 확률
+// 30성 구조: 실패하면 그대로 유지 (하락 · 찬스 타임 없음) · 15성부터 파괴 가능 · 파괴되면 12성으로
+const SF_OK = [0.95, 0.9, 0.85, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.3,
+  0.3, 0.3, 0.15, 0.15, 0.15, 0.3, 0.15, 0.15, 0.1, 0.1, 0.1, 0.07, 0.05, 0.03, 0.01];
+const SF_BRK = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0.021, 0.021, 0.068, 0.068, 0.085, 0.105, 0.1275, 0.17, 0.18, 0.18, 0.18, 0.186, 0.19, 0.194, 0.198];
+const sfBreakTo = () => 12;
 const SF_OFF = ['atk', 'str', 'rng', 'mag'];
 // 부위별 능력치 비율: 무기 = 공격 계열 / 방어구 = 방어 + 공격 계열 일부 / 장신구 = 공격 계열 위주
 const sfMix = (sl) => (sl === 'weapon' ? { off: 1, def: 0 } : SLOTS_SF[sl]?.cat === 'acc' ? { off: 0.6, def: 0.3 } : { off: 0.35, def: 1 });
 // k번째 별 하나가 주는 기본 수치 (뒤로 갈수록 크게)
-const sfGain = (k) => 2 + 0.8 * k + (k > 15 ? 0.5 * (k - 15) ** 1.7 : 0);
-export const sfRate = (k) => {
-  const ok = k < 15 ? Math.max(0.3, 0.95 - 0.05 * k) : k < 22 ? 0.3 : SF_HI[k - 22];
-  const brk = k < 15 ? 0 : k < 18 ? 0.021 : k < 20 ? 0.028 : k < 22 ? 0.035 : 0.04 + 0.004 * (k - 22);
-  return { ok, brk };
-};
-const sfCost = (k, prot) => Math.round(200 * (k + 1) ** 2 * (prot ? 2 : 1));
-const sfCanProt = (k) => k >= 15 && k < 22;
-const sfDrops = (k) => k >= 15 && !SF_SAFE.includes(k);
+const sfGain = (k) => 2 + 0.8 * k + (k > 15 ? 3 * (k - 15) ** 1.8 : 0);
+// 16성부터는 별마다 % 능력치도 붙음 (뒤로 갈수록 크게: 16성 +0.33% → 30성 +2.9% · 30성 무기 합계 약 +25%)
+const sfPct = (k) => (k > 15 ? 0.00325 * (k - 15) ** 0.8 * (1 + 0.06 * (k - 15)) : 0);
+const sfPctTot = (n) => { let t = 0; for (let k = 16; k <= n; k++) t += sfPct(k); return t; };
+export const sfRate = (k) => ({ ok: SF_OK[k] ?? 0, brk: SF_BRK[k] ?? 0 });
+const sfCost = (k, prot) => Math.round(200 * (k + 1) ** 2 * (k >= 15 ? 1 + 0.25 * (k - 14) : 1) * (prot ? 2 : 1));
+const sfCanProt = (k) => k >= 15 && k < 22; // 파괴 방지: 15 ~ 21성 · 비용 2배 (편의 기능은 그대로)
+const sfDrops = () => false;
 P.sfInit = function () {
   this.s.sf ||= { st: {}, auto: false, target: 15, slot: 'all', reserve: 0.1, prot: false, chance: {}, log: [], tries: 0, breaks: 0 };
   const f = this.s.sf;
@@ -1874,10 +1876,11 @@ P.sfBonus = function () {
     let tot = 0;
     for (let k = 1; k <= n; k++) tot += sfGain(k);
     const m = sfMix(sl);
-    if (m.off) for (const k of SF_OFF) v[k + 'Flat'] = (v[k + 'Flat'] || 0) + tot * m.off;
-    if (m.def) v.defFlat = (v.defFlat || 0) + tot * m.def;
+    const pc = sfPctTot(n);
+    if (m.off) for (const k of SF_OFF) { v[k + 'Flat'] = (v[k + 'Flat'] || 0) + tot * m.off; if (pc) v[k + 'Pct'] = (v[k + 'Pct'] || 0) + pc * m.off; }
+    if (m.def) { v.defFlat = (v.defFlat || 0) + tot * m.def; if (pc) v.defPct = (v.defPct || 0) + pc * m.def; }
   }
-  for (const k of Object.keys(v)) v[k] = Math.round(v[k]);
+  for (const k of Object.keys(v)) v[k] = /Pct$/.test(k) ? Math.round(v[k] * 10000) / 10000 : Math.round(v[k]);
   this._sfB = { key, v };
   return v;
 };
@@ -1952,10 +1955,10 @@ const starBar = (n) => `<span style="color:#ffd84d;letter-spacing:-1px">${'★'.
 function townStar(ui, p, g, s) {
   const f = g.sfInit();
   const b = g.sfBonus();
-  const bonusTxt = ['atk', 'str', 'def', 'rng', 'mag'].filter((k) => b[k + 'Flat']).map((k) => `${STATS[k].name} +${fmt(b[k + 'Flat'])}`).join(', ');
+  const bonusTxt = ['atk', 'str', 'def', 'rng', 'mag'].filter((k) => b[k + 'Flat']).map((k) => `${STATS[k].name} +${fmt(b[k + 'Flat'])}${b[k + 'Pct'] ? ` · +${(b[k + 'Pct'] * 100).toFixed(1)}%` : ''}`).join(', ');
   const top = h('div', 'card', `<b>⭐ 별 강화</b> <span class="mut">시도 ${fmt(f.tries)} · 파괴 ${fmt(f.breaks)}</span>
     <div class="mut">부위마다 최대 ${SF_MAX}성 · 별은 부위에 붙어서 장비를 바꿔도 그대로 · 별마다 <b>고정 능력치</b> (무기 = 공격 · 힘 · 원거리 · 마법 / 방어구 = 방어 + 공격 계열 일부 / 장신구 = 공격 계열 위주)</div>
-    <div class="mut">15성부터: 실패하면 1성 하락 (15 · 20 · 25성은 하락 없음) · 💥 파괴되면 12성으로 (22성부터는 20성으로) · 연속 2번 하락하면 다음은 찬스 타임 (100% 성공)</div>
+    <div class="mut">실패하면 별은 그대로 유지 · 15성부터 💥 파괴 가능 (파괴되면 12성으로) · 16성부터 별마다 <b>% 능력치</b>가 붙고 높을수록 크게 늘어남</div>
     <div style="margin-top:6px">강화 보너스: <span class="sp">${bonusTxt || '없음'}</span></div>`);
   p.appendChild(top);
   // 자동 강화
@@ -1989,7 +1992,7 @@ function townStar(ui, p, g, s) {
   if (f.log.length) p.appendChild(h('div', 'card mut', `<b>최근 결과</b><br>${f.log.map((x) => `${SLOTS_SF[x.sl].icon} ${x.k}성 → ${x.nk}성 · ${x.txt}`).join('<br>')}`));
   // 확률표
   const rows = [];
-  for (let k = 0; k < SF_MAX; k++) { const r = sfRate(k); rows.push(`${k}→${k + 1}성: 성공 ${pct(r.ok, 1)}${r.brk ? ` · 파괴 ${pct(r.brk, 1)}` : ''} · 💰${fmt(sfCost(k))} · 별 하나 +${Math.round(sfGain(k + 1))}`); }
+  for (let k = 0; k < SF_MAX; k++) { const r = sfRate(k); rows.push(`${k}→${k + 1}성: 성공 ${pct(r.ok, 1)} · 유지 ${pct(1 - r.ok - r.brk, 1)}${r.brk ? ` · 파괴 ${pct(r.brk, 1)}` : ''} · 💰${fmt(sfCost(k))} · 별 하나 +${Math.round(sfGain(k + 1))}${sfPct(k + 1) ? ` · +${(sfPct(k + 1) * 100).toFixed(2)}% (누적 ${(sfPctTot(k + 1) * 100).toFixed(1)}%)` : ''}`); }
   const t = h('details', 'card mut', `<summary>📋 확률 · 비용표</summary>${rows.join('<br>')}`);
   p.appendChild(t);
 }
@@ -2117,7 +2120,7 @@ ladder('fun', 'cp', '🎟', ['쿠폰 맛보기', '쿠폰 수집가', '쿠폰의 
 add('fun', 'broke', '🪙', '빈털터리', '골드가 100 미만이 되기 (강화를 너무 했나?)', 0, (g) => [(g.s.coins || 0) < 100 ? 1 : 0, 1]);
 add('fun', 'nofood', '🥲', '배고픈 모험가', '음식 없이 전투하기 (가방에 음식 0개)', 0, (g) => [g.s.hunt && !Object.keys(g.s.bank).some((id) => ITEMS[id]?.kind === 'food') ? 1 : 0, 1]);
 add('fun', 'naked', '🩲', '맨몸의 용사', '장비 하나도 없이 전투하기', 0, (g) => [g.s.hunt && !SLOT_IDS.some((sl) => g.s.equip[sl]) ? 1 : 0, 1]);
-add('fun', 'chance', '🎯', '찬스 타임!', '강화 찬스 타임 성공', 1, (g) => [g.s.sf?.log?.some((x) => x.res === 'chance') || g.s.achFlags?.chance ? 1 : 0, 1]);
+add('fun', 'chance', '🎯', '기적의 별', '성공 확률 3% 이하 강화 성공 (28성 이상)', 1, (g) => [g.s.sf?.log?.some((x) => x.res === 'chance') || g.s.achFlags?.chance ? 1 : 0, 1]);
 add('fun', 'all3', '🔀', '삼위일체', '근접 · 원거리 · 마법 모두 레벨 50', 2, (g) => [[Math.min(g.lvl('atk'), g.lvl('str')), g.lvl('rng'), g.lvl('mag')].filter((x) => x >= 50).length, 3]);
 add('fun', 'ach50', '🏅', '업적 사냥꾼', '업적 50개 달성', 2, (g) => [Object.keys(g.s.ach || {}).length, 50]);
 add('fun', 'ach150', '🎖️', '업적 수집광', '업적 150개 달성', 4, (g) => [Object.keys(g.s.ach || {}).length, 150]);
@@ -2164,7 +2167,7 @@ P.update = function (dt) {
   if (now - (this._achT || 0) > 1500) { this._achT = now; this.achCheck(); }
 };
 const _sfTryA = P.sfTry;
-P.sfTry = function (...a) { const r = _sfTryA.apply(this, a); if (r === 'chance') this.s.achFlags = { ...(this.s.achFlags || {}), chance: 1 }; return r; };
+P.sfTry = function (...a) { const k0 = this.sfStars(a[0]); const r = _sfTryA.apply(this, a); if (r === 'chance' || (r === 'ok' && k0 >= 28)) this.s.achFlags = { ...(this.s.achFlags || {}), chance: 1 }; return r; };
 
 // ---- 화면 ----
 function townAch(ui, p, g, s) {
@@ -2368,8 +2371,9 @@ const SF_RES = { ok: ['성공!', 'ok'], chance: ['찬스 타임 성공!', 'ok'],
 const sfNextTxt = (sl, k) => {
   if (k >= SF_MAX) return '최대 강화';
   const v = sfGain(k + 1), m = sfMix(sl), o = [];
-  if (m.off) o.push(`공격·힘·원거리·마법 +${Math.round(v * m.off)}`);
-  if (m.def) o.push(`방어 +${Math.round(v * m.def)}`);
+  const pc = sfPct(k + 1);
+  if (m.off) o.push(`공격·힘·원거리·마법 +${Math.round(v * m.off)}${pc ? ` · +${(pc * m.off * 100).toFixed(2)}%` : ''}`);
+  if (m.def) o.push(`방어 +${Math.round(v * m.def)}${pc ? ` · +${(pc * m.def * 100).toFixed(2)}%` : ''}`);
   return o.join(' · ');
 };
 U.sfOpen = function (sl, auto = false) {
