@@ -2368,6 +2368,20 @@ P.sfTry = function (sl, quiet) {
 const _sfStopW = P.sfAutoStop;
 P.sfAutoStop = function (why, kind) { if (this._sfSess) this._sfSess.stop = why; return _sfStopW.call(this, why, kind); };
 const SF_RES = { ok: ['성공!', 'ok'], chance: ['찬스 타임 성공!', 'ok'], keep: ['실패 (유지)', 'keep'], down: ['실패 (하락)', 'down'], break: ['💥 파괴', 'brk'] };
+// 이 부위 별 n개의 누적 능력치 (고정 · %)
+const sfSlotTxt = (sl, n) => {
+  if (!n) return '없음';
+  let tot = 0; for (let k = 1; k <= n; k++) tot += sfGain(k);
+  const m = sfMix(sl), pc = sfPctTot(n), o = [];
+  if (m.off) o.push(`공격·힘·원거리·마법 +${fmt(Math.round(tot * m.off))}${pc ? ` · <b>+${(pc * m.off * 100).toFixed(1)}%</b>` : ''}`);
+  if (m.def) o.push(`방어 +${fmt(Math.round(tot * m.def))}${pc ? ` · <b>+${(pc * m.def * 100).toFixed(1)}%</b>` : ''}`);
+  return o.join(' / ');
+};
+// 결과: 별이 바뀐 만큼 % 변화
+const sfDeltaTxt = (sl, k, nk) => {
+  const m = sfMix(sl), d = sfPctTot(nk) - sfPctTot(k), w = m.off || m.def;
+  return d ? ` (${d > 0 ? '+' : ''}${(d * w * 100).toFixed(2)}%)` : '';
+};
 const sfNextTxt = (sl, k) => {
   if (k >= SF_MAX) return '최대 강화';
   const v = sfGain(k + 1), m = sfMix(sl), o = [];
@@ -2416,9 +2430,10 @@ U.sfOpen = function (sl, auto = false) {
         <div class="sfnm">${SLOTS_SF[sl2].name} <span class="mut">${it ? it.name : '비어 있음'}</span></div>
         <div class="sfk">${k}성 ${k < SF_MAX ? `<span class="mut">→</span> ${k + 1}성` : ''}</div>
         <div class="sfstars">${starBar(k)}</div>
-        <div class="sfres ${res ? res[1] : ''}">${res ? `${L.k}성 → ${L.nk}성 · ${res[0]}` : '&nbsp;'}</div>
+        <div class="sfres ${res ? res[1] : ''}">${res ? `${L.k}성 → ${L.nk}성 · ${res[0]}${sfDeltaTxt(sl2, L.k, L.nk)}` : '&nbsp;'}</div>
       </div>
       ${rate}
+      <div style="text-align:center">지금 ${k}성: <span class="sp">${sfSlotTxt(sl2, k)}</span></div>
       <div class="mut" style="text-align:center">다음 별: ${sfNextTxt(sl2, k)}</div>
       <div class="mut" style="text-align:center">비용 💰${fmt(cost)} · 보유 💰${fmt(g.s.coins)}</div>
       <label class="tg" style="justify-content:center"><input type="checkbox" class="sfp"${f.prot ? ' checked' : ''}> 🛡 파괴 방지 (15~21성 · 비용 2배)</label>
